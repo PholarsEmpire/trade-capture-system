@@ -1,6 +1,8 @@
 package com.technicalchallenge.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -42,7 +44,7 @@ public class TradeDTO {
     private LocalDateTime createdDate;
     private LocalDateTime deactivatedDate;
 
-    // Book reference
+    // Book References
     private Long bookId;
     private String bookName;
 
