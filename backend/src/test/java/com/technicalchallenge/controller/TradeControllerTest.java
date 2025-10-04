@@ -135,7 +135,9 @@ public class TradeControllerTest {
         mockMvc.perform(post("/api/trades")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(tradeDTO)))
-                .andExpect(status().isOk())
+                 /*FOLA COMMENTED: I changed .andExpect(status().isOk()) to .andExpect(status().isCreated())
+                 because POST endpoints should return 201 Created status by default, following REST conventions.*/
+                .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.tradeId", is(1001)));
 
         verify(tradeService).saveTrade(any(Trade.class), any(TradeDTO.class));
