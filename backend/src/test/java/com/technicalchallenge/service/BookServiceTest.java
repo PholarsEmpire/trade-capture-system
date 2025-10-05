@@ -1,6 +1,7 @@
 package com.technicalchallenge.service;
 
 import com.technicalchallenge.dto.BookDTO;
+import com.technicalchallenge.mapper.BookMapper;
 import com.technicalchallenge.model.Book;
 import com.technicalchallenge.repository.BookRepository;
 import org.junit.jupiter.api.Test;
@@ -12,12 +13,22 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 public class BookServiceTest {
     @Mock
     private BookRepository bookRepository;
+
+
+    /*FOLA COMMENTED: Added missing mock to fix NPE
+    Since the getBookById method uses bookMapper, 
+    we need to mock it to avoid NullPointerException in tests.
+    */
+    @Mock
+    private BookMapper bookMapper;
+
     @InjectMocks
     private BookService bookService;
 
@@ -25,6 +36,15 @@ public class BookServiceTest {
     void testFindBookById() {
         Book book = new Book();
         book.setId(1L);
+
+        /* FOLA ADDED: Map Book to BookDTO
+        We need both the entity and the DTO to properly mock and verify the service logic
+        The repository returns the entity, and the service returns the DTO.
+        */
+        BookDTO bookDTO = new BookDTO();
+        bookDTO.setId(1L);
+        when(bookMapper.toDto(book)).thenReturn(bookDTO);
+
         when(bookRepository.findById(1L)).thenReturn(Optional.of(book));
         Optional<BookDTO> found = bookService.getBookById(1L);
         assertTrue(found.isPresent());
@@ -37,6 +57,11 @@ public class BookServiceTest {
         book.setId(2L);
         BookDTO bookDTO = new BookDTO();
         bookDTO.setId(2L);
+
+        //FOLA ADDED: Stub the mapper methods
+        when(bookMapper.toEntity(bookDTO)).thenReturn(book);
+        when(bookMapper.toDto(book)).thenReturn(bookDTO);
+
         when(bookRepository.save(any(Book.class))).thenReturn(book);
 
         BookDTO saved = bookService.saveBook(bookDTO);
