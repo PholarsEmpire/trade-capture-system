@@ -98,6 +98,7 @@ class TradeServiceTest {
         trade = new Trade();
         trade.setId(1L);
         trade.setTradeId(100001L);
+        trade.setVersion(1); //FOLA ADDED: version to avoid null pointer exceptions
     }
 
     @Test
@@ -110,7 +111,7 @@ class TradeServiceTest {
         when(tradeStatusRepository.findByTradeStatus(anyString())).thenReturn(Optional.of(new com.technicalchallenge.model.TradeStatus()));
         when(tradeLegRepository.save(any(TradeLeg.class))).thenReturn(new TradeLeg());
             // End of FOLA ADDED
-            
+
         when(tradeRepository.save(any(Trade.class))).thenReturn(trade);
 
        
@@ -183,6 +184,13 @@ class TradeServiceTest {
         // Given
         when(tradeRepository.findByTradeIdAndActiveTrue(100001L)).thenReturn(Optional.of(trade));
         when(tradeStatusRepository.findByTradeStatus("AMENDED")).thenReturn(Optional.of(new com.technicalchallenge.model.TradeStatus()));
+        
+        //FOLA ADDED:Add stubbing for "NEW" status as well. Its good to stub all posible statuses that can be modified or amended
+        when(tradeStatusRepository.findByTradeStatus("NEW")).thenReturn(Optional.of(new com.technicalchallenge.model.TradeStatus()));
+
+        when(tradeLegRepository.save(any(TradeLeg.class))).thenReturn(new TradeLeg());
+        // End of FOLA ADDED
+
         when(tradeRepository.save(any(Trade.class))).thenReturn(trade);
 
         // When
