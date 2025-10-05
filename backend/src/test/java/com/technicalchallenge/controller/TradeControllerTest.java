@@ -9,6 +9,7 @@ import com.technicalchallenge.service.TradeService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -23,6 +24,7 @@ import java.util.Optional;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -41,6 +43,7 @@ public class TradeControllerTest {
     private TradeMapper tradeMapper;
 
     private ObjectMapper objectMapper;
+
     private TradeDTO tradeDTO;
     private Trade trade;
 
@@ -187,14 +190,13 @@ public class TradeControllerTest {
         tradeDTO.setTradeId(tradeId);
         
 
-        // FOLA COMMENTED: Added this line to ensure the tradeId in the returned Trade entity matches the path variable
-        // This is important for the assertion in the test and to mimic real service behavior since the service would typically set this
-        //and service layer can only process an entity not a DTO
-        // Otherwise, the returned tradeId would be null and the test would fail
+        // FOLA COMMENTED: This ensures the trade entity also has the tradeId set; needed before calling the service layer
         trade.setTradeId(tradeId);
 
-        when(tradeService.saveTrade(any(Trade.class), any(TradeDTO.class))).thenReturn(trade);
+        // when(tradeService.saveTrade(any(Trade.class), any(TradeDTO.class))).thenReturn(trade);
+        when(tradeService.amendTrade(eq(tradeId), any(TradeDTO.class))).thenReturn(trade);
         doNothing().when(tradeService).populateReferenceDataByName(any(Trade.class), any(TradeDTO.class));
+
 
         // When/Then
         mockMvc.perform(put("/api/trades/{id}", tradeId)
@@ -203,7 +205,8 @@ public class TradeControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.tradeId", is(1001)));
 
-        verify(tradeService).saveTrade(any(Trade.class), any(TradeDTO.class));
+        //verify(tradeService).saveTrade(any(Trade.class), any(TradeDTO.class));
+        verify(tradeService).amendTrade(eq(tradeId), any(TradeDTO.class));
     }
 
     @Test
@@ -217,7 +220,7 @@ public class TradeControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(tradeDTO)))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().string("Trade ID in path must match Trade ID in request body"));
+                .andExpect(content().string("Error updating trade: Trade ID in path must match Trade ID in request body"));
 
         verify(tradeService, never()).saveTrade(any(Trade.class), any(TradeDTO.class));
     }

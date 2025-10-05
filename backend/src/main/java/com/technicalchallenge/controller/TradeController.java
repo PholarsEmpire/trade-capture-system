@@ -131,9 +131,11 @@ public class TradeController {
             // FOLA COMMENTED: Added check to ensure the tradeId in the path matches the tradeId in the request body if provided
             // This is important to prevent inconsistencies and ensure the correct trade is being updated
             if (tradeDTO.getTradeId() != null && !tradeDTO.getTradeId().equals(id)) {
-                return ResponseEntity.badRequest().body("Trade ID in path must match Trade ID in request body");
+                return ResponseEntity.badRequest().body("Error updating trade: Trade ID in path must match Trade ID in request body");
             }
             
+
+
             tradeDTO.setTradeId(id); // Ensure the ID matches
 
             //FOLA COMMENTED: Added the 2 lines below to ensure the tradeId is set in both DTO and entity
@@ -149,7 +151,7 @@ public class TradeController {
             if (responseDTO.getTradeId() == null) {
                 responseDTO.setTradeId(id);
             }
-            
+
             return ResponseEntity.ok(responseDTO);
         } catch (Exception e) {
             logger.error("Error updating trade: {}", e.getMessage(), e);
