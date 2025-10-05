@@ -87,6 +87,17 @@ public class TradeController {
             @Valid @RequestBody TradeDTO tradeDTO) {
         logger.info("Creating new trade: {}", tradeDTO);
         try {
+          
+               // FOLA COMMENTED: Added null checks for bookName and counterpartyName before a trade is created
+            if (tradeDTO.getBookName() == null || tradeDTO.getCounterpartyName() == null) {
+            return ResponseEntity.badRequest().body("Book and Counterparty are required");
+            }
+
+            // FOLA COMMENTED: Added null check for tradeDate before a trade is created
+            if (tradeDTO.getTradeDate() == null) {
+            return ResponseEntity.badRequest().body("Trade date is required");
+            }
+
             Trade trade = tradeMapper.toEntity(tradeDTO);
             tradeService.populateReferenceDataByName(trade, tradeDTO);
             Trade savedTrade = tradeService.saveTrade(trade, tradeDTO);
@@ -116,9 +127,31 @@ public class TradeController {
             @Valid @RequestBody TradeDTO tradeDTO) {
         logger.info("Updating trade with id: {}", id);
         try {
+            
+            // FOLA COMMENTED: Added check to ensure the tradeId in the path matches the tradeId in the request body if provided
+            // This is important to prevent inconsistencies and ensure the correct trade is being updated
+            if (tradeDTO.getTradeId() != null && !tradeDTO.getTradeId().equals(id)) {
+                return ResponseEntity.badRequest().body("Error updating trade: Trade ID in path must match Trade ID in request body");
+            }
+            
+
+
             tradeDTO.setTradeId(id); // Ensure the ID matches
+
+            //FOLA COMMENTED: Added the 2 lines below to ensure the tradeId is set in both DTO and entity
+            // This is important because the service layer uses the tradeId from the entity for processing
+            Trade trade = tradeMapper.toEntity(tradeDTO);// Convert DTO to entity
+            trade.setTradeId(id); // Ensure tradeId is set in entity
+
             Trade amendedTrade = tradeService.amendTrade(id, tradeDTO);
             TradeDTO responseDTO = tradeMapper.toDto(amendedTrade);
+
+            // FOLA COMMENTED: Added this check to ensure the tradeId is set in the response DTO even if the service layer does not return it
+            // This is important for consistency in the API response
+            if (responseDTO.getTradeId() == null) {
+                responseDTO.setTradeId(id);
+            }
+
             return ResponseEntity.ok(responseDTO);
         } catch (Exception e) {
             logger.error("Error updating trade: {}", e.getMessage(), e);
@@ -141,7 +174,9 @@ public class TradeController {
         logger.info("Deleting trade with id: {}", id);
         try {
             tradeService.deleteTrade(id);
-            return ResponseEntity.ok().body("Trade cancelled successfully");
+            // FOLA COMMENTED: Changed from returning 200 OK with message to 204 No Content to conform with RESTful best practices
+           // return ResponseEntity.ok().body("Trade cancelled successfully");
+            return ResponseEntity.noContent().build();
         } catch (Exception e) {
             logger.error("Error deleting trade: {}", e.getMessage(), e);
             return ResponseEntity.badRequest().body("Error deleting trade: " + e.getMessage());

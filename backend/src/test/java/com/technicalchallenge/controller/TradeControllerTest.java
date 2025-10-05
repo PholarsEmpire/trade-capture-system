@@ -9,6 +9,7 @@ import com.technicalchallenge.service.TradeService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -23,6 +24,7 @@ import java.util.Optional;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -41,6 +43,7 @@ public class TradeControllerTest {
     private TradeMapper tradeMapper;
 
     private ObjectMapper objectMapper;
+
     private TradeDTO tradeDTO;
     private Trade trade;
 
@@ -135,7 +138,9 @@ public class TradeControllerTest {
         mockMvc.perform(post("/api/trades")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(tradeDTO)))
-                .andExpect(status().isOk())
+                 /*FOLA COMMENTED: I changed .andExpect(status().isOk()) to .andExpect(status().isCreated())
+                 because POST endpoints should return 201 Created status by default, following REST conventions.*/
+                .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.tradeId", is(1001)));
 
         verify(tradeService).saveTrade(any(Trade.class), any(TradeDTO.class));
@@ -183,8 +188,15 @@ public class TradeControllerTest {
         // Given
         Long tradeId = 1001L;
         tradeDTO.setTradeId(tradeId);
-        when(tradeService.saveTrade(any(Trade.class), any(TradeDTO.class))).thenReturn(trade);
+        
+
+        // FOLA COMMENTED: This ensures the trade entity also has the tradeId set; needed before calling the service layer
+        trade.setTradeId(tradeId);
+
+        // when(tradeService.saveTrade(any(Trade.class), any(TradeDTO.class))).thenReturn(trade);
+        when(tradeService.amendTrade(eq(tradeId), any(TradeDTO.class))).thenReturn(trade);
         doNothing().when(tradeService).populateReferenceDataByName(any(Trade.class), any(TradeDTO.class));
+
 
         // When/Then
         mockMvc.perform(put("/api/trades/{id}", tradeId)
@@ -193,7 +205,8 @@ public class TradeControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.tradeId", is(1001)));
 
-        verify(tradeService).saveTrade(any(Trade.class), any(TradeDTO.class));
+        //verify(tradeService).saveTrade(any(Trade.class), any(TradeDTO.class));
+        verify(tradeService).amendTrade(eq(tradeId), any(TradeDTO.class));
     }
 
     @Test
@@ -207,7 +220,7 @@ public class TradeControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(tradeDTO)))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().string("Trade ID in path must match Trade ID in request body"));
+                .andExpect(content().string("Error updating trade: Trade ID in path must match Trade ID in request body"));
 
         verify(tradeService, never()).saveTrade(any(Trade.class), any(TradeDTO.class));
     }

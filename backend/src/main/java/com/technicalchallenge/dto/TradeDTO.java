@@ -1,6 +1,8 @@
 package com.technicalchallenge.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -18,11 +20,12 @@ import java.util.List;
 public class TradeDTO {
     private Long id;
 
+    @JsonProperty("tradeId")
     private Long tradeId;
 
     private Integer version;
 
-    @NotNull(message = "Trade date is required")
+   
     private LocalDate tradeDate;
 
     @JsonProperty("startDate")
@@ -42,7 +45,7 @@ public class TradeDTO {
     private LocalDateTime createdDate;
     private LocalDateTime deactivatedDate;
 
-    // Book reference
+    // Book References
     private Long bookId;
     private String bookName;
 

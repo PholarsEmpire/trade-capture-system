@@ -268,6 +268,9 @@ public class TradeService {
 
         Trade existingTrade = existingTradeOpt.get();
 
+        tradeDTO.setTradeId(tradeId); // Ensure tradeId is set in DTO
+        existingTrade.setTradeId(tradeId); // Ensure tradeId is set in entity
+
         // Deactivate existing trade
         existingTrade.setActive(false);
         existingTrade.setDeactivatedDate(LocalDateTime.now());
