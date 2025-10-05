@@ -57,6 +57,11 @@ public class BookServiceTest {
         book.setId(2L);
         BookDTO bookDTO = new BookDTO();
         bookDTO.setId(2L);
+
+        //FOLA ADDED: Stub the mapper methods
+        when(bookMapper.toEntity(bookDTO)).thenReturn(book);
+        when(bookMapper.toDto(book)).thenReturn(bookDTO);
+
         when(bookRepository.save(any(Book.class))).thenReturn(book);
 
         BookDTO saved = bookService.saveBook(bookDTO);
