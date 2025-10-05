@@ -59,6 +59,8 @@ public class BookServiceTest {
         bookDTO.setId(2L);
 
         //FOLA ADDED: Stub the mapper methods
+        // The service uses these to convert between entity and DTO
+        // We need to mock both directions
         when(bookMapper.toEntity(bookDTO)).thenReturn(book);
         when(bookMapper.toDto(book)).thenReturn(bookDTO);
 

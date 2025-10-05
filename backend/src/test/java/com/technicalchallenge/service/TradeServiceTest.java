@@ -2,9 +2,14 @@ package com.technicalchallenge.service;
 
 import com.technicalchallenge.dto.TradeDTO;
 import com.technicalchallenge.dto.TradeLegDTO;
+import com.technicalchallenge.model.Book;
 import com.technicalchallenge.model.Trade;
 import com.technicalchallenge.model.TradeLeg;
+import com.technicalchallenge.repository.BookRepository;
 import com.technicalchallenge.repository.CashflowRepository;
+import com.technicalchallenge.repository.CounterpartyRepository;
+import com.technicalchallenge.repository.HolidayCalendarRepository;
+import com.technicalchallenge.repository.ScheduleRepository;
 import com.technicalchallenge.repository.TradeLegRepository;
 import com.technicalchallenge.repository.TradeRepository;
 import com.technicalchallenge.repository.TradeStatusRepository;
@@ -21,6 +26,8 @@ import java.util.Arrays;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -37,6 +44,22 @@ class TradeServiceTest {
 
     @Mock
     private TradeStatusRepository tradeStatusRepository;
+
+
+    //FOLA ADDED: Mocking additional dependent repositories/services
+    @Mock
+    private BookRepository bookRepository;
+
+    @Mock
+    private CounterpartyRepository counterpartyRepository;
+
+   @Mock
+   private HolidayCalendarRepository holidayCalendarRepository;
+
+   @Mock
+   private ScheduleRepository scheduleRepository;
+
+   // End of FOLA ADDED
 
     @Mock
     private AdditionalInfoService additionalInfoService;
@@ -56,6 +79,12 @@ class TradeServiceTest {
         tradeDTO.setTradeStartDate(LocalDate.of(2025, 1, 17));
         tradeDTO.setTradeMaturityDate(LocalDate.of(2026, 1, 17));
 
+
+        //FOLA ADDED: Setting bookName and counterpartyName to avoid null pointer exceptions in service methods
+        tradeDTO.setBookName("TestBook");
+        tradeDTO.setCounterpartyName("TestCounterparty");
+        tradeDTO.setTradeStatus("NEW");
+
         TradeLegDTO leg1 = new TradeLegDTO();
         leg1.setNotional(BigDecimal.valueOf(1000000));
         leg1.setRate(0.05);
@@ -74,7 +103,17 @@ class TradeServiceTest {
     @Test
     void testCreateTrade_Success() {
         // Given
+
+         //FOLA ADDED: Stubbing dependent repository methods
+        when(bookRepository.findByBookName(anyString())).thenReturn(Optional.of(new Book()));
+        when(counterpartyRepository.findByName(anyString())).thenReturn(Optional.of(new com.technicalchallenge.model.Counterparty()));
+        when(tradeStatusRepository.findByTradeStatus(anyString())).thenReturn(Optional.of(new com.technicalchallenge.model.TradeStatus()));
+        when(tradeLegRepository.save(any(TradeLeg.class))).thenReturn(new TradeLeg());
+            // End of FOLA ADDED
+            
         when(tradeRepository.save(any(Trade.class))).thenReturn(trade);
+
+       
 
         // When
         Trade result = tradeService.createTrade(tradeDTO);
@@ -95,8 +134,10 @@ class TradeServiceTest {
             tradeService.createTrade(tradeDTO);
         });
 
+        
         // This assertion is intentionally wrong - candidates need to fix it
-        assertEquals("Wrong error message", exception.getMessage());
+        //FOLA ADDED: I changed the expected message to match the actual exception message thrown in the service
+        assertEquals("Start date cannot be before trade date", exception.getMessage());
     }
 
     @Test
