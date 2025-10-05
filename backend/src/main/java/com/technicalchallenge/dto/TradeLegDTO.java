@@ -19,7 +19,8 @@ public class TradeLegDTO {
     private Long legId;
 
     @NotNull(message = "Notional is required")
-    @Positive(message = "Notional must be positive")
+    //FOLA REMOVED the code line below to resolve validation conflict and handle it in controller manually
+    //@Positive(message = "Notional must be positive")
     private BigDecimal notional;
 
     private Double rate;

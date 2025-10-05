@@ -164,7 +164,7 @@ public class TradeLegControllerTest {
                 .content(objectMapper.writeValueAsString(tradeLegDTO)))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().string("Notional must be positive"));
-
+                
         verify(tradeLegService, never()).saveTradeLeg(any(TradeLeg.class), any(TradeLegDTO.class));
     }
 
