@@ -185,6 +185,14 @@ public class TradeControllerTest {
         // Given
         Long tradeId = 1001L;
         tradeDTO.setTradeId(tradeId);
+        
+
+        // FOLA COMMENTED: Added this line to ensure the tradeId in the returned Trade entity matches the path variable
+        // This is important for the assertion in the test and to mimic real service behavior since the service would typically set this
+        //and service layer can only process an entity not a DTO
+        // Otherwise, the returned tradeId would be null and the test would fail
+        trade.setTradeId(tradeId);
+
         when(tradeService.saveTrade(any(Trade.class), any(TradeDTO.class))).thenReturn(trade);
         doNothing().when(tradeService).populateReferenceDataByName(any(Trade.class), any(TradeDTO.class));
 

@@ -20,11 +20,12 @@ import java.util.List;
 public class TradeDTO {
     private Long id;
 
+    @JsonProperty("tradeId")
     private Long tradeId;
 
     private Integer version;
 
-    @NotNull(message = "Trade date is required")
+   
     private LocalDate tradeDate;
 
     @JsonProperty("startDate")
