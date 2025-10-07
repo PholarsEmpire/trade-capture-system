@@ -2,13 +2,21 @@ package com.technicalchallenge.service;
 
 import com.technicalchallenge.dto.TradeDTO;
 import com.technicalchallenge.dto.TradeLegDTO;
+import com.technicalchallenge.model.ApplicationUser;
 import com.technicalchallenge.model.Book;
+import com.technicalchallenge.model.Cashflow;
+import com.technicalchallenge.model.Counterparty;
+import com.technicalchallenge.model.LegType;
+import com.technicalchallenge.model.Schedule;
 import com.technicalchallenge.model.Trade;
 import com.technicalchallenge.model.TradeLeg;
+import com.technicalchallenge.model.TradeStatus;
+import com.technicalchallenge.repository.ApplicationUserRepository;
 import com.technicalchallenge.repository.BookRepository;
 import com.technicalchallenge.repository.CashflowRepository;
 import com.technicalchallenge.repository.CounterpartyRepository;
 import com.technicalchallenge.repository.HolidayCalendarRepository;
+import com.technicalchallenge.repository.LegTypeRepository;
 import com.technicalchallenge.repository.ScheduleRepository;
 import com.technicalchallenge.repository.TradeLegRepository;
 import com.technicalchallenge.repository.TradeRepository;
@@ -59,6 +67,10 @@ class TradeServiceTest {
    @Mock
    private ScheduleRepository scheduleRepository;
 
+   @Mock
+   private LegTypeRepository legTypeRepository;
+
+
    // End of FOLA ADDED
 
     @Mock
@@ -69,6 +81,13 @@ class TradeServiceTest {
 
     private TradeDTO tradeDTO;
     private Trade trade;
+
+    // Declare mockBook and other mock objects as fields
+    private Book mockBook;
+    private Counterparty mockCounterparty;
+    private TradeStatus mockTradeStatus;
+    private ApplicationUser mockTraderUser;
+    private TradeLeg mockTradeLeg;
 
     @BeforeEach
     void setUp() {
@@ -94,6 +113,19 @@ class TradeServiceTest {
         leg2.setRate(0.0);
 
         tradeDTO.setTradeLegs(Arrays.asList(leg1, leg2));
+
+        // Configure the DTO to explicitly use a Monthly schedule
+        tradeDTO.getTradeLegs().forEach(leg -> {
+            // "Monthly" is recognized by the parseSchedule method
+            leg.setCalculationPeriodSchedule("Monthly"); 
+        });
+        
+        mockBook = new Book();
+        mockCounterparty = new Counterparty();
+        mockTradeStatus = new TradeStatus();
+        mockTraderUser = new ApplicationUser();
+        mockTradeLeg = new TradeLeg();
+        mockTradeLeg.setLegId(1L);
 
         trade = new Trade();
         trade.setId(1L);
@@ -221,12 +253,35 @@ class TradeServiceTest {
         // Candidates need to implement proper cashflow testing
 
         // Given - setup is incomplete
-        TradeLeg leg = new TradeLeg();
-        leg.setNotional(BigDecimal.valueOf(1000000));
+     // Mock reference data lookups for Trade (from testCreateTrade_Success)
+        when(tradeRepository.save(any(Trade.class))).thenReturn(trade);
+        when(bookRepository.findByBookName(anyString())).thenReturn(Optional.of(mockBook));
+        when(counterpartyRepository.findByName(anyString())).thenReturn(Optional.of(mockCounterparty));
+        when(tradeStatusRepository.findByTradeStatus("NEW")).thenReturn(Optional.of(mockTradeStatus));
+    
+        
+        // Mock reference data lookups for TradeLegs
+        Schedule mockSchedule = new Schedule();
+        mockSchedule.setSchedule("Monthly");
+        // Mocking the reference data lookup for the schedule
+        when(scheduleRepository.findBySchedule("Monthly")).thenReturn(Optional.of(mockSchedule));
 
-        // When - method call is missing
+        // Mock the TradeLegRepository.save() to ensure the saved leg has the Schedule
+        // The generateCashflows logic relies on the Schedule being on the saved leg.
+        when(tradeLegRepository.save(any(TradeLeg.class))).thenAnswer(invocation -> {
+            TradeLeg savedLeg = invocation.getArgument(0);
+            savedLeg.setLegId(1L); // Simulate ID generation
+            savedLeg.setCalculationPeriodSchedule(mockSchedule); // Inject the Schedule entity
+            return savedLeg;
+        });
 
-        // Then - assertions are wrong/missing
-        assertEquals(1, 12); // This will always fail - candidates need to fix
+        // WHEN
+        // Call the public method which triggers the entire cashflow generation process
+        tradeService.createTrade(tradeDTO);
+
+        // Then
+        // I expect 12 cashflows per leg, 2 legs = 24 cashflows
+        verify(cashflowRepository, times(24)).save(any(Cashflow.class));
+
     }
 }
