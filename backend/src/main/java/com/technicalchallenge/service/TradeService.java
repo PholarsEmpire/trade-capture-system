@@ -4,11 +4,25 @@ import com.technicalchallenge.dto.TradeDTO;
 import com.technicalchallenge.dto.TradeLegDTO;
 import com.technicalchallenge.model.*;
 import com.technicalchallenge.repository.*;
+import com.technicalchallenge.specifications.TradeSpecifications;
+
+import com.technicalchallenge.validation.ValidationResult;
+
+
 import org.springframework.beans.factory.annotation.Autowired;
+//import org.springframework.boot.autoconfigure.data.web.SpringDataWebProperties.Pageable;
+import org.springframework.data.domain.Page;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+
+//import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -67,6 +81,7 @@ public class TradeService {
         return tradeRepository.findByTradeIdAndActiveTrue(tradeId);
     }
 
+
     @Transactional
     public Trade createTrade(TradeDTO tradeDTO) {
         logger.info("Creating new trade with ID: {}", tradeDTO.getTradeId());
@@ -94,11 +109,19 @@ public class TradeService {
             tradeDTO.setTradeStatus("NEW");
         }
 
+
+         // Validate business rules
+        ValidationResult validation = validateTradeBusinessRules(tradeDTO);
+        if (!validation.isValid()) {
+            throw new RuntimeException("Trade validation failed: " + String.join(", ", validation.getErrors()));
+        }
+
         // Populate reference data
         populateReferenceDataByName(trade, tradeDTO);
 
         // Ensure we have essential reference data
         validateReferenceData(trade);
+
 
         Trade savedTrade = tradeRepository.save(trade);
 
@@ -591,4 +614,207 @@ public class TradeService {
         // For simplicity, using a static variable. In real scenario, this should be atomic and thread-safe.
         return 10000L + tradeRepository.count();
     }
+
+
+
+    //FOLA ADDED: NEW METHOD FOR DYNAMIC SEARCH AND FILTERING USING SPECIFICATIONS
+    public List<Trade> searchTrades(String counterparty,
+                                String book,
+                                Long trader,
+                                String status,
+                                LocalDate from,
+                                LocalDate to) {
+
+        Specification<Trade> spec = Specification
+                .where(TradeSpecifications.hasCounterparty(counterparty))
+                .and(TradeSpecifications.hasBook(book))
+                .and(TradeSpecifications.hasTrader(trader))
+                .and(TradeSpecifications.hasStatus(status))
+                .and(TradeSpecifications.dateBetween(from, to));
+
+        return tradeRepository.findAll(spec);
+    }
+
+
+    // FOLA ADDED: NEW METHOD FOR PAGINATED SEARCH WITH SORTING
+    public Page<Trade> searchTrades(String counterparty,
+                                    String book,
+                                    Long trader,
+                                    String status,
+                                    LocalDate from,
+                                    LocalDate to,
+                                    int page,
+                                    int size,
+                                    String sortBy,
+                                    String direction) {
+
+        Specification<Trade> spec = Specification
+                .where(TradeSpecifications.hasCounterparty(counterparty))
+                .and(TradeSpecifications.hasBook(book))
+                .and(TradeSpecifications.hasTrader(trader))
+                .and(TradeSpecifications.hasStatus(status))
+                .and(TradeSpecifications.dateBetween(from, to));
+
+        Sort sort = Sort.by(Sort.Direction.fromString(direction), sortBy);
+        Pageable pageable = PageRequest.of(page, size, sort);
+
+        return tradeRepository.findAll(spec, pageable);
+    }
+
+
+    // FOLA ADDED: NEW METHOD FOR RSQL SEARCH
+    public Page<Trade> searchByRsql(String query, Pageable pageable) {
+    // very small parser: split ANDs first
+        Specification<Trade> spec = Specification.where(null);
+        for (String andPart : query.split(";")) {
+            Specification<Trade> orSpec = Specification.where(null);
+            for (String orPart : andPart.split(",")) {
+                orSpec = orSpec == null ? parseToken(orPart) : orSpec.or(parseToken(orPart));
+            }
+            spec = spec == null ? orSpec : spec.and(orSpec);
+        }
+        return tradeRepository.findAll(spec == null ? Specification.where(null) : spec, pageable);
+    }
+
+
+    // Simple RSQL token parser for basic ==,=ge=,=le= operations meaning equal, greater-equal, less-equal
+    // This is a very basic parser and may not cover all edge cases
+    // It assumes that the input is well-formed and does not perform extensive validation
+    // Examples of supported tokens:
+    // counterparty.name==BigBank
+    // tradeStatus.tradeStatus==NEW
+    // tradeDate=ge=2025-01-01
+    private Specification<Trade> parseToken(String token) {
+        token = token.trim();
+        if (token.contains("=ge=")) {
+            String[] parts = token.split("=ge=");
+            if ("tradeDate".equals(parts[0])) {
+                return TradeSpecifications.dateBetween(LocalDate.parse(parts[1]), null);
+            }
+        } else if (token.contains("=le=")) {
+            String[] parts = token.split("=le=");
+            if ("tradeDate".equals(parts[0])) {
+                return TradeSpecifications.dateBetween(null, LocalDate.parse(parts[1]));
+            }
+        } else if (token.contains("==")) {
+            String[] parts = token.split("==");
+            String field = parts[0];
+            String value = parts[1];
+            return switch (field) {
+                case "counterparty.name" -> TradeSpecifications.hasCounterparty(value);
+                case "book.bookName", "book.name" -> TradeSpecifications.hasBook(value);
+                case "tradeStatus.tradeStatus" -> TradeSpecifications.hasStatus(value);
+                default -> (root, q, cb) -> cb.conjunction(); // ignore unknowns
+            };
+        }
+        return (root, q, cb) -> cb.conjunction();
+    }
+
+
+
+
+
+    // FOLA ADDED: Validation method for dates validation, trade legs validation, and entity existence checks
+    public ValidationResult validateTradeBusinessRules(TradeDTO tradeDTO) {
+        ValidationResult result = new ValidationResult();
+
+        // ✅ Date Validation
+        if (tradeDTO.getTradeDate() == null) {
+            result.addError("Trade date is required");
+        } else {
+            if (tradeDTO.getTradeStartDate() != null && tradeDTO.getTradeStartDate().isBefore(tradeDTO.getTradeDate())) {
+                result.addError("Start date cannot be before trade date");
+            }
+            if (tradeDTO.getTradeMaturityDate() != null && ((tradeDTO.getTradeMaturityDate().isBefore(tradeDTO.getTradeStartDate())) || (tradeDTO.getTradeMaturityDate().isBefore(tradeDTO.getTradeDate())))) {
+                result.addError("Maturity date cannot be before start date or trade date");
+            }
+            if (tradeDTO.getTradeDate().isBefore(LocalDate.now().minusDays(30))) {
+                result.addError("Trade date cannot be more than 30 days in the past"); // A trade date too far in the past is considered stale.
+            }
+        }
+
+        // ✅ Leg Consistency
+        if (tradeDTO.getTradeLegs() == null || tradeDTO.getTradeLegs().size() != 2) {
+            result.addError("Trade must have exactly 2 legs");
+        } else {
+            ValidationResult legResult = validateTradeLegConsistency(tradeDTO.getTradeLegs());
+            if (!legResult.isValid()) result.getErrors().addAll(legResult.getErrors());
+        }
+
+        // ✅ Entity Existence Checks
+        if (tradeDTO.getBookName() == null) result.addError("Book is required");
+        if (tradeDTO.getCounterpartyName() == null) result.addError("Counterparty is required");
+
+        return result;
+    }
+
+
+    // FOLA ADDED: Validation method for trade legs consistency
+    public ValidationResult validateTradeLegConsistency(List<TradeLegDTO> legs) {
+    ValidationResult result = new ValidationResult();
+
+    if (legs.size() != 2) {
+        result.addError("Trade must have exactly 2 legs");
+        return result;
+    }
+
+    TradeLegDTO leg1 = legs.get(0);
+    TradeLegDTO leg2 = legs.get(1);
+
+    // ✅ Same maturity date
+    if (leg1.getCalculationPeriodSchedule() != null && leg2.getCalculationPeriodSchedule() != null &&
+        !leg1.getCalculationPeriodSchedule().equals(leg2.getCalculationPeriodSchedule())) {
+        result.addError("Both legs must have identical maturity dates");
+    }
+
+    // ✅ Opposite pay/receive
+    // If one leg is "Pay" the other must be "Receive"
+    if (leg1.getPayReceiveFlag() != null && leg2.getPayReceiveFlag() != null &&
+        leg1.getPayReceiveFlag().equalsIgnoreCase(leg2.getPayReceiveFlag())) {
+        result.addError("Legs must have opposite pay/receive flags");
+    }
+
+    // ✅ Floating leg must have an index. An index is required for floating legs to determine the reference rate.
+    if ("Floating".equalsIgnoreCase(leg1.getLegType()) && leg1.getIndexName() == null)
+        result.addError("Floating leg must have an index specified");
+    if ("Floating".equalsIgnoreCase(leg2.getLegType()) && leg2.getIndexName() == null)
+        result.addError("Floating leg must have an index specified");
+
+    // ✅ Fixed leg must have a rate. A rate is required for fixed legs to determine the payment amount.
+    if ("Fixed".equalsIgnoreCase(leg1.getLegType()) && leg1.getRate() == 0.0)
+        result.addError("Fixed leg must have a valid rate");
+    if ("Fixed".equalsIgnoreCase(leg2.getLegType()) && leg2.getRate() == 0.0)
+        result.addError("Fixed leg must have a valid rate");
+
+    return result;
+    }
+
+
+
+    // FOLA ADDED: New method for user privileges validation based on the different user roles and the type of operations they can perform
+    // Roles: TRADER, SALES, MIDDLE_OFFICE, SUPPORT, ADMIN, SUPERUSER
+    // Operations: CREATE, AMEND, TERMINATE, CANCEL, DELETE, VIEW
+    // This method checks if a user with a given role can perform a specific operation on a trade e.g a Support user should not be able to CREATE a trade
+    public boolean validateUserPrivileges(String role, String operation, TradeDTO tradeDTO) {
+    // Normalize role to upper case
+    if (role == null || operation == null) return false;
+    role = role.toUpperCase();
+    operation = operation.toUpperCase();
+
+    switch (role) {
+        case "TRADER":
+            return List.of("CREATE", "AMEND", "TERMINATE", "CANCEL").contains(operation);
+        case "SALES":
+            return List.of("CREATE", "AMEND").contains(operation);
+        case "MIDDLE_OFFICE":
+            return List.of("AMEND", "VIEW").contains(operation);
+        case "SUPPORT":
+            return operation.equals("VIEW");
+        default:
+            return false;
+    }
+    }
+
+
+
 }

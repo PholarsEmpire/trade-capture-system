@@ -3,8 +3,17 @@ package com.technicalchallenge.controller;
 import com.technicalchallenge.dto.TradeDTO;
 import com.technicalchallenge.mapper.TradeMapper;
 import com.technicalchallenge.model.Trade;
+import com.technicalchallenge.repository.TradeRepository;
+import com.technicalchallenge.rsql.RsqlSpecificationBuilder;
 import com.technicalchallenge.service.TradeService;
 import org.springframework.beans.factory.annotation.Autowired;
+//import org.springframework.boot.autoconfigure.data.web.SpringDataWebProperties.Pageable;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
@@ -19,7 +28,11 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 import jakarta.validation.Valid;
+
+import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +48,8 @@ public class TradeController {
     private TradeService tradeService;
     @Autowired
     private TradeMapper tradeMapper;
+    @Autowired
+    private TradeRepository tradeRepository;
 
     @GetMapping
     @Operation(summary = "Get all trades",
@@ -232,4 +247,107 @@ public class TradeController {
             return ResponseEntity.badRequest().body("Error cancelling trade: " + e.getMessage());
         }
     }
+
+    // FOLA ADDED ADDITIONAL ENDPOINT FOR SERACHING AND FILTERING TRADES
+    @GetMapping("/search")
+    @Operation(summary = "Searches trades based on multiple criteria",
+               description = "Searches for trades based on optional criteria such as book name, counterparty name, trader, trade date range, and status")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Trades retrieved successfully"),
+        @ApiResponse(responseCode = "400", description = "Invalid request parameter(s)"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    public ResponseEntity<List<TradeDTO>> searchTrades(
+            @RequestParam(required = false) String counterparty,
+            @RequestParam(required = false) String book,
+            @RequestParam(required = false) Long trader,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to
+    ) {
+        logger.info("Searching trades with criteria: counterparty={}, book={}, trader={}, status={}, from={}, to={}",
+                    counterparty, book, trader, status, from, to);
+        
+        List<Trade> trades = tradeService.searchTrades(counterparty, book, trader, status, from, to);
+        List<TradeDTO> results = trades.stream().map(tradeMapper::toDto).toList();
+        return ResponseEntity.ok(results);
+    }
+
+
+    @GetMapping("/filter")
+    @Operation(summary = "Filter trades with pagination and sorting",
+               description = "Filters trades based on optional criteria such as book name, counterparty name, trader, trade date range, and status. Supports pagination and sorting.")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Trades retrieved, filtered, sorted and paginated successfully"),
+        @ApiResponse(responseCode = "400", description = "Invalid request parameter(s)"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+            public ResponseEntity<?> filterTrades(
+            @RequestParam(required = false) String counterparty,
+            @RequestParam(required = false) String book,
+            @RequestParam(required = false) Long trader,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "tradeDate") String sortBy,
+            @RequestParam(defaultValue = "DESC") String direction
+    ) {
+        var tradesPage = tradeService.searchTrades(counterparty, book, trader, status, from, to, page, size, sortBy, direction);
+        var tradeDTOs = tradesPage.getContent().stream().map(tradeMapper::toDto).toList();
+
+        return ResponseEntity.ok(Map.of(
+                "content", tradeDTOs,
+                "page", tradesPage.getNumber(),
+                "size", tradesPage.getSize(),
+                "totalElements", tradesPage.getTotalElements(),
+                "totalPages", tradesPage.getTotalPages(),
+                "sortBy", sortBy,
+                "direction", direction
+        ));
+    }
+
+
+
+   /* RSQL search endpoint for complex queries
+    RSQL stands for RESTful Service Query Language
+    It allows clients to construct complex queries using a simple and standardized syntax
+    This endpoint parses the RSQL query string, converts it into a Specification, and retrieves matching trades
+    Example RSQL queries:
+    - counterparty==AcmeCorp
+    - book.bookName==TradingBook1;tradeStatus.tradeStatus==NEW
+    - tradeDate=ge=2025-01-01;tradeDate=le=2025-12-31
+    - traderUser.firstName==John,traderUser.lastName==Doe*/
+    @GetMapping("/rsql")
+    @Operation(summary = "Advanced search for trades with RSQL (RESTful Service Query Language)",
+               description = "Searches for trades using RSQL query syntax for complex filtering")
+     @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Trades retrieved successfully"),   
+        @ApiResponse(responseCode = "400", description = "Invalid RSQL syntax"),
+        @ApiResponse(responseCode = "500", description = "Internal server error") 
+    })
+    public ResponseEntity<List<TradeDTO>> searchRsql(
+            @RequestParam(required = false) String query
+    ) {
+        RsqlSpecificationBuilder<Trade> builder = new RsqlSpecificationBuilder<>();
+        Specification<Trade> spec = builder.parse(query);
+        List<Trade> trades = tradeRepository.findAll(spec);
+        List<TradeDTO> result = trades.stream().map(tradeMapper::toDto).toList();
+        return ResponseEntity.ok(result);
+    }
+
+
+
+    // private Sort parseSort(String sortParam) {
+    //     // e.g. "tradeDate,desc;tradeId,asc"
+    //     List<Sort.Order> orders = Arrays.stream(sortParam.split(";"))
+    //             .map(s -> s.split(","))
+    //             .map(arr -> new Sort.Order(
+    //                     (arr.length > 1 && "desc".equalsIgnoreCase(arr[1])) ? Sort.Direction.DESC : Sort.Direction.ASC,
+    //                     arr[0]
+    //             )).toList();
+    //     return Sort.by(orders);
+    // }
+
 }

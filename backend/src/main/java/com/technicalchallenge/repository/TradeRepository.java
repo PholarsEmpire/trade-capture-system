@@ -4,12 +4,15 @@ import com.technicalchallenge.model.Trade;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+
+// FOLA ADDED: Updated to extend JpaSpecificationExecutor for dynamic queries using Specifications
 @Repository
-public interface TradeRepository extends JpaRepository<Trade, Long> {
+public interface TradeRepository extends JpaRepository<Trade, Long>, JpaSpecificationExecutor <Trade> {
     // Existing methods
     List<Trade> findByTradeId(Long tradeId);
 
@@ -26,4 +29,5 @@ public interface TradeRepository extends JpaRepository<Trade, Long> {
 
     @Query("SELECT t FROM Trade t WHERE t.tradeId = :tradeId AND t.active = true ORDER BY t.version DESC")
     Optional<Trade> findLatestActiveVersionByTradeId(@Param("tradeId") Long tradeId);
+
 }
