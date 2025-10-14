@@ -21,6 +21,8 @@ import com.technicalchallenge.repository.ScheduleRepository;
 import com.technicalchallenge.repository.TradeLegRepository;
 import com.technicalchallenge.repository.TradeRepository;
 import com.technicalchallenge.repository.TradeStatusRepository;
+import com.technicalchallenge.validation.ValidationResult;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -94,9 +96,9 @@ class TradeServiceTest {
         // Set up test data
         tradeDTO = new TradeDTO();
         tradeDTO.setTradeId(100001L);
-        tradeDTO.setTradeDate(LocalDate.of(2025, 1, 15));
-        tradeDTO.setTradeStartDate(LocalDate.of(2025, 1, 17));
-        tradeDTO.setTradeMaturityDate(LocalDate.of(2026, 1, 17));
+        tradeDTO.setTradeDate(LocalDate.now().minusDays(5));
+        tradeDTO.setTradeStartDate(LocalDate.now().minusDays(3));
+        tradeDTO.setTradeMaturityDate(LocalDate.now().plusYears(1));
 
 
         //FOLA ADDED: Setting bookName and counterpartyName to avoid null pointer exceptions in service methods
@@ -283,5 +285,38 @@ class TradeServiceTest {
         // I expect 12 cashflows per leg, 2 legs = 24 cashflows
         verify(cashflowRepository, times(24)).save(any(Cashflow.class));
 
+    }
+
+
+    //FOLA ADDED: A new test method for  validating user privileges defined in the service
+    @Test
+    void testValidateUserPrivileges() {
+        // Given
+        TradeDTO tradeDTO = new TradeDTO();
+        tradeDTO.setTradeId(100001L);
+        tradeDTO.setTradeDate(LocalDate.of(2025, 1, 15));
+        tradeDTO.setTradeStartDate(LocalDate.of(2025, 1, 17));
+        tradeDTO.setTradeMaturityDate(LocalDate.of(2026, 1, 17));
+
+        // When & Then
+        assertTrue(tradeService.validateUserPrivileges("TRADER", "CREATE", tradeDTO));
+        assertFalse(tradeService.validateUserPrivileges("SUPPORT", "CREATE", tradeDTO));
+        assertTrue(tradeService.validateUserPrivileges("MIDDLE_OFFICE", "AMEND", tradeDTO));
+        assertFalse(tradeService.validateUserPrivileges("SALES", "TERMINATE", tradeDTO));
+        assertFalse(tradeService.validateUserPrivileges("ADMIN", "DELETE", tradeDTO));
+        assertTrue(tradeService.validateUserPrivileges("SUPERUSER", "VIEW", tradeDTO));
+    }
+
+
+    //
+    @Test
+    void testValidateTradeBusinessRules_InvalidDates_ShouldFail() {
+        tradeDTO.setTradeDate(LocalDate.now());
+        tradeDTO.setTradeStartDate(LocalDate.now().minusDays(5)); // invalid date given for testing
+
+        ValidationResult result = tradeService.validateTradeBusinessRules(tradeDTO);
+
+        assertFalse(result.isValid());
+        assertTrue(result.getErrors().contains("Start date cannot be before trade date"));
     }
 }

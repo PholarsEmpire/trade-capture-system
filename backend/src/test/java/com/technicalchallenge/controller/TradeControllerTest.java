@@ -2,20 +2,29 @@ package com.technicalchallenge.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.technicalchallenge.dto.DailySummaryDTO;
 import com.technicalchallenge.dto.TradeDTO;
+import com.technicalchallenge.dto.TradeSummaryDTO;
 import com.technicalchallenge.mapper.TradeMapper;
 import com.technicalchallenge.model.Trade;
 import com.technicalchallenge.service.TradeService;
+
+import io.swagger.v3.oas.annotations.Operation;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
+//import org.junit.jupiter.api.extension.ExtendWith;
+//import org.mockito.InjectMocks;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.junit.jupiter.SpringExtension;
+import org.springframework.http.ResponseEntity;
+//import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -29,7 +38,7 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@ExtendWith(SpringExtension.class)
+//@ExtendWith(SpringExtension.class)
 @WebMvcTest(TradeController.class)
 public class TradeControllerTest {
 
@@ -142,7 +151,6 @@ public class TradeControllerTest {
                  because POST endpoints should return 201 Created status by default, following REST conventions.*/
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.tradeId", is(1001)));
-
         verify(tradeService).saveTrade(any(Trade.class), any(TradeDTO.class));
         verify(tradeService).populateReferenceDataByName(any(Trade.class), any(TradeDTO.class));
     }
@@ -251,6 +259,10 @@ public class TradeControllerTest {
                         .content(objectMapper.writeValueAsString(invalidDTO)))
                 .andExpect(status().isBadRequest());
 
-        verify(tradeService, never()).createTrade(any(TradeDTO.class));
+        //verify(tradeService, never()).createTrade(any(TradeDTO.class));
+        verify(tradeService, never()).saveTrade(any(Trade.class), any(TradeDTO.class));
+
     }
+
+
 }

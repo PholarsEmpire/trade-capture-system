@@ -1,7 +1,9 @@
 package com.technicalchallenge.service;
 
+import com.technicalchallenge.dto.DailySummaryDTO;
 import com.technicalchallenge.dto.TradeDTO;
 import com.technicalchallenge.dto.TradeLegDTO;
+import com.technicalchallenge.dto.TradeSummaryDTO;
 import com.technicalchallenge.model.*;
 import com.technicalchallenge.repository.*;
 import com.technicalchallenge.specifications.TradeSpecifications;
@@ -30,6 +32,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional
@@ -803,10 +806,14 @@ public class TradeService {
 
     switch (role) {
         case "TRADER":
-            return List.of("CREATE", "AMEND", "TERMINATE", "CANCEL").contains(operation);
+            return List.of("CREATE", "AMEND", "TERMINATE", "CANCEL", "DELETE","VIEW").contains(operation);
         case "SALES":
-            return List.of("CREATE", "AMEND").contains(operation);
+            return List.of("CREATE", "AMEND", "VIEW").contains(operation);
         case "MIDDLE_OFFICE":
+            return List.of("AMEND", "VIEW").contains(operation);
+        case "SUPERUSER":
+            return List.of("CREATE", "AMEND", "TERMINATE", "CANCEL", "DELETE", "VIEW").contains(operation);
+        case "ADMIN":
             return List.of("AMEND", "VIEW").contains(operation);
         case "SUPPORT":
             return operation.equals("VIEW");
@@ -815,6 +822,93 @@ public class TradeService {
     }
     }
 
+
+    // FOLA ADDED: New method to get trades analytics by trader ID
+    public List<Trade> getTradesByTrader(Long traderId) {
+        return tradeRepository.findAll().stream()
+                .filter(trade -> trade.getTraderUser() != null &&
+                        trade.getTraderUser().getId().equals(traderId))
+                .collect(Collectors.toList());
+    }
+
+    // FOLA ADDED: New method to get trades summary/ analytics by book ID
+    public List<Trade> getTradesByBook(Long bookId) {
+        return tradeRepository.findAll().stream()
+                .filter(trade -> trade.getBook() != null && trade.getBook().getId().equals(bookId))
+                .collect(Collectors.toList());
+    }
+
+    // FOLA ADDED: New method to get overall trade summary analytics
+    public TradeSummaryDTO getTradeSummary() {
+        List<Trade> trades = tradeRepository.findAll();
+
+        long totalTrades = trades.size();
+
+        var tradesByStatus = trades.stream()
+                .collect(Collectors.groupingBy(
+                        t -> t.getTradeStatus() != null ? t.getTradeStatus().getTradeStatus() : "UNKNOWN",
+                        Collectors.counting()
+                ));
+
+        var notionalByCurrency = trades.stream()
+                .flatMap(t -> t.getTradeLegs().stream())
+                .collect(Collectors.groupingBy(
+                        leg -> leg.getCurrency() != null ? leg.getCurrency().getCurrency() : "UNKNOWN",
+                        Collectors.reducing(BigDecimal.ZERO, TradeLeg::getNotional, BigDecimal::add)
+                ));
+
+        var tradesByCounterparty = trades.stream()
+                .filter(t -> t.getCounterparty() != null)
+                .collect(Collectors.groupingBy(
+                        t -> t.getCounterparty().getName(),
+                        Collectors.counting()
+                ));
+
+        var tradesByType = trades.stream()
+                .filter(t -> t.getTradeType() != null)
+                .collect(Collectors.groupingBy(
+                        t -> t.getTradeType().getTradeType(),
+                        Collectors.counting()
+                ));
+
+        return new TradeSummaryDTO(totalTrades, tradesByStatus, notionalByCurrency, tradesByCounterparty, tradesByType);
+    }
+
+    // FOLA ADDED: New method to get daily trade summary/ analytics
+    public DailySummaryDTO getDailySummary() {
+        LocalDate today = LocalDate.now();
+        List<Trade> todayTrades = tradeRepository.findAll().stream()
+                .filter(t -> t.getTradeDate() != null && t.getTradeDate().isEqual(today))
+                .collect(Collectors.toList());
+
+        long tradeCount = todayTrades.size();
+        BigDecimal totalNotional = todayTrades.stream()
+                .flatMap(t -> t.getTradeLegs().stream())
+                .map(TradeLeg::getNotional)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal averageNotional = tradeCount > 0
+                ? totalNotional.divide(BigDecimal.valueOf(tradeCount), 2, java.math.RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
+        long newTrades = todayTrades.stream()
+                .filter(t -> t.getTradeStatus() != null && "NEW".equalsIgnoreCase(t.getTradeStatus().getTradeStatus()))
+                .count();
+
+        long amendedTrades = todayTrades.stream()
+                .filter(t -> t.getTradeStatus() != null && "AMENDED".equalsIgnoreCase(t.getTradeStatus().getTradeStatus()))
+                .count();
+
+        long terminatedTrades = todayTrades.stream()
+                .filter(t -> t.getTradeStatus() != null && "TERMINATED".equalsIgnoreCase(t.getTradeStatus().getTradeStatus()))
+                .count();
+
+        // Simulate comparison with yesterday
+        long yesterdayTrades = (long) (tradeCount * 0.9); // placeholder for demo
+        BigDecimal dayOverDayChange = BigDecimal.valueOf(((double) (tradeCount - yesterdayTrades) / yesterdayTrades) * 100);
+
+        return new DailySummaryDTO(today.toString(), tradeCount, totalNotional, averageNotional, newTrades, amendedTrades, terminatedTrades, dayOverDayChange);
+    }
 
 
 }
