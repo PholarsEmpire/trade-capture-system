@@ -15,7 +15,7 @@ import java.time.LocalDate;
 // Specification<Trade> spec = Specification.where(TradeSpecifications.hasCounterparty(counterpartyName))
 public class TradeSpecifications {
 
-    // Counterparty name filter (e.g. "CITI", "BigBank")
+    // Counterparty name filter (e.g. "MegaFund", "BigBank")
     public static Specification<Trade> hasCounterparty(String name) {
         return (root, query, cb) -> {
             if (name == null || name.isBlank()) return cb.conjunction();
@@ -40,35 +40,15 @@ public class TradeSpecifications {
     }
 
 
-    // Flexible trader name filter to handle first name, last name, or both
-    // If only one name is provided, it matches against the first name. 
-    // But its best to provide full name as two traders can share first names
-    // If two names are provided (e.g. "Simon King"), it matches first name and last name
-    // Case insensitive matching is applied
+    // Trader user ID filter
     public static Specification<Trade> hasTrader(Long traderId) {
         return (root, query, cb) -> {
             if (traderId == null) return cb.conjunction();
             return cb.equal(root.join("traderUser").get("id"), traderId);
-
-            
-
-            // var userJoin = root.join("traderUser");
-            // String[] parts = traderName.trim().split("\\s+");
-
-            // if (parts.length == 1) {
-            //     // Only first name provided
-            //     return cb.equal(cb.lower(userJoin.get("firstName")), parts[0].toLowerCase());
-            // } else {
-            //     // First + last name (e.g. "Simon King") provided
-            //     return cb.and(
-            //         cb.like(cb.lower(userJoin.get("firstName")), "%" + parts[0].toLowerCase() + "%"),
-            //         cb.equal(cb.lower(userJoin.get("lastName")), "%" + parts[1].toLowerCase() + "%")
-            //     );
-            // }
         };
     }
 
-    // Date range filter for tradeDate
+    // Date range filter for tradeDate (date agreement was made, not the start date or date of execution)
     // If both from and to are provided, filter between them
     // If only from is provided, filter from that date onwards
     // If only to is provided, filter up to that date

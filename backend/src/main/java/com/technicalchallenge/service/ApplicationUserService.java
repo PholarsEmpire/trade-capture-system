@@ -4,6 +4,7 @@ import com.technicalchallenge.model.ApplicationUser;
 import com.technicalchallenge.repository.ApplicationUserRepository;
 import lombok.AllArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import org.slf4j.Logger;
@@ -12,11 +13,15 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.Optional;
 
+
 @Service
 @AllArgsConstructor
 public class ApplicationUserService {
     private static final Logger logger = LoggerFactory.getLogger(ApplicationUserService.class);
     private final ApplicationUserRepository applicationUserRepository;
+
+    @Autowired
+    private BCryptPasswordEncoder passwordEncoder;
 
     public boolean validateCredentials(String loginId, String password) {
         logger.debug("Validating credentials for user: {}", loginId);
@@ -41,6 +46,8 @@ public class ApplicationUserService {
 
     public ApplicationUser saveUser(ApplicationUser user) {
         logger.info("Saving user: {}", user);
+        // Encode password before saving for security and data integrity
+        user.setPassword(passwordEncoder.encode(user.getPassword()));
         return applicationUserRepository.save(user);
     }
 

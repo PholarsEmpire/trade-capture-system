@@ -10,8 +10,10 @@ import com.technicalchallenge.specifications.TradeSpecifications;
 
 import com.technicalchallenge.validation.ValidationResult;
 
+import lombok.extern.java.Log;
 
 import org.springframework.beans.factory.annotation.Autowired;
+//import org.springframework.boot.autoconfigure.security.SecurityProperties.User;
 //import org.springframework.boot.autoconfigure.data.web.SpringDataWebProperties.Pageable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.jpa.domain.Specification;
@@ -19,6 +21,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.config.annotation.rsocket.RSocketSecurity.AuthorizePayloadsSpec.Access;
+import org.springframework.security.access.AccessDeniedException;
+
 
 
 //import org.springframework.data.domain.Page;
@@ -36,6 +45,7 @@ import java.util.stream.Collectors;
 
 @Service
 @Transactional
+@PreAuthorize("isAuthenticated()") // Ensures all methods require authentication by default, i.e user must be logged in. That means no unauthenticated user can reach this service.
 public class TradeService {
     private static final Logger logger = LoggerFactory.getLogger(TradeService.class);
 
@@ -73,6 +83,21 @@ public class TradeService {
     private PayRecRepository payRecRepository;
     @Autowired
     private AdditionalInfoService additionalInfoService;
+    @Autowired
+    private UserPrivilegeRepository userPrivilegeRepository;
+    @Autowired
+    private UserProfileRepository userProfileRepository;
+    @Autowired
+    private PrivilegeRepository privilegeRepository;
+   
+
+
+    // NEW METHOD: Get logged-in username automatically for authenticated actions
+    private String getLoggedInUsername() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return (auth != null) ? auth.getName() : null;
+    }
+
 
     public List<Trade> getAllTrades() {
         logger.info("Retrieving all trades");
@@ -86,7 +111,14 @@ public class TradeService {
 
 
     @Transactional
+    @PreAuthorize("hasAnyRole('TRADER', 'TRADER_SALES', 'SALES', 'SUPERUSER', 'ADMIN')")
     public Trade createTrade(TradeDTO tradeDTO) {
+        //validate user privileges before creating trade
+        String loginId= getLoggedInUsername();
+        if (!validateUserPrivileges(loginId, "BOOK_TRADE", tradeDTO)) {
+            throw new AccessDeniedException("User does not have privilege to create trade");
+        }
+
         logger.info("Creating new trade with ID: {}", tradeDTO.getTradeId());
 
         // Generate trade ID if not provided
@@ -137,9 +169,11 @@ public class TradeService {
 
     // NEW METHOD: For controller compatibility
     @Transactional
-    public Trade saveTrade(Trade trade, TradeDTO tradeDTO) {
+    @PreAuthorize("hasAnyRole('TRADER', 'TRADER_SALES', 'SALES', 'SUPERUSER')")
+    public Trade saveTrade(TradeDTO tradeDTO) {
+         Trade trade = mapDTOToEntity(tradeDTO);
         logger.info("Saving trade with ID: {}", trade.getTradeId());
-
+       
         // If this is an existing trade (has ID), handle as amendment
         if (trade.getId() != null) {
             return amendTrade(trade.getTradeId(), tradeDTO);
@@ -278,13 +312,25 @@ public class TradeService {
 
     // NEW METHOD: Delete trade (mark as cancelled)
     @Transactional
+    @PreAuthorize("hasAnyRole('TRADER', 'TRADER_SALES', 'SALES', 'SUPERUSER')")
     public void deleteTrade(Long tradeId) {
+        String loginId= getLoggedInUsername();
+        if(!validateUserPrivileges(loginId, "DELETE_TRADE", null)){
+            throw new AccessDeniedException("User does not have privilege to delete trade");
+        }
         logger.info("Deleting (cancelling) trade with ID: {}", tradeId);
         cancelTrade(tradeId);
     }
 
     @Transactional
+    @PreAuthorize("hasAnyRole('TRADER', 'TRADER_SALES', 'SALES', 'SUPERUSER', 'MIDDLE_OFFICE', 'MO')")
     public Trade amendTrade(Long tradeId, TradeDTO tradeDTO) {
+        //validate user privileges before amending trade
+        String loginId= getLoggedInUsername();
+        if(!validateUserPrivileges(loginId, "AMEND_TRADE", tradeDTO)){
+            throw new AccessDeniedException("User does not have privilege to amend trade");
+        }
+
         logger.info("Amending trade with ID: {}", tradeId);
 
         Optional<Trade> existingTradeOpt = getTradeById(tradeId);
@@ -328,7 +374,12 @@ public class TradeService {
     }
 
     @Transactional
+    @PreAuthorize("hasAnyRole('TRADER', 'TRADER_SALES', 'SALES', 'SUPERUSER')")
     public Trade terminateTrade(Long tradeId) {
+        String loginId= getLoggedInUsername();
+        if(!validateUserPrivileges(loginId, "TERMINATE_TRADE", null)){
+            throw new AccessDeniedException("User does not have privilege to terminate trade");
+        }
         logger.info("Terminating trade with ID: {}", tradeId);
 
         Optional<Trade> tradeOpt = getTradeById(tradeId);
@@ -347,7 +398,12 @@ public class TradeService {
     }
 
     @Transactional
+    @PreAuthorize("hasAnyRole('TRADER', 'TRADER_SALES', 'SALES', 'SUPERUSER')")
     public Trade cancelTrade(Long tradeId) {
+        String loginId= getLoggedInUsername();
+        if(!validateUserPrivileges(loginId, "CANCEL_TRADE", null)){
+            throw new AccessDeniedException("User does not have privilege to cancel trade");
+        }
         logger.info("Cancelling trade with ID: {}", tradeId);
 
         Optional<Trade> tradeOpt = getTradeById(tradeId);
@@ -620,6 +676,8 @@ public class TradeService {
 
 
 
+
+
     //FOLA ADDED: NEW METHOD FOR DYNAMIC SEARCH AND FILTERING USING SPECIFICATIONS
     public List<Trade> searchTrades(String counterparty,
                                 String book,
@@ -687,6 +745,7 @@ public class TradeService {
     // counterparty.name==BigBank
     // tradeStatus.tradeStatus==NEW
     // tradeDate=ge=2025-01-01
+
     private Specification<Trade> parseToken(String token) {
         token = token.trim();
         if (token.contains("=ge=")) {
@@ -712,8 +771,6 @@ public class TradeService {
         }
         return (root, q, cb) -> cb.conjunction();
     }
-
-
 
 
 
@@ -749,7 +806,7 @@ public class TradeService {
         if (tradeDTO.getCounterpartyName() == null) result.addError("Counterparty is required");
 
         return result;
-    }
+     }
 
 
     // FOLA ADDED: Validation method for trade legs consistency
@@ -764,7 +821,7 @@ public class TradeService {
     TradeLegDTO leg1 = legs.get(0);
     TradeLegDTO leg2 = legs.get(1);
 
-    // ✅ Same maturity date
+    // Same maturity date 
     if (leg1.getCalculationPeriodSchedule() != null && leg2.getCalculationPeriodSchedule() != null &&
         !leg1.getCalculationPeriodSchedule().equals(leg2.getCalculationPeriodSchedule())) {
         result.addError("Both legs must have identical maturity dates");
@@ -797,31 +854,88 @@ public class TradeService {
     // FOLA ADDED: New method for user privileges validation based on the different user roles and the type of operations they can perform
     // Roles: TRADER, SALES, MIDDLE_OFFICE, SUPPORT, ADMIN, SUPERUSER
     // Operations: CREATE, AMEND, TERMINATE, CANCEL, DELETE, VIEW
-    // This method checks if a user with a given role can perform a specific operation on a trade e.g a Support user should not be able to CREATE a trade
-    public boolean validateUserPrivileges(String role, String operation, TradeDTO tradeDTO) {
-    // Normalize role to upper case
-    if (role == null || operation == null) return false;
-    role = role.toUpperCase();
-    operation = operation.toUpperCase();
+    // This method checks if the logged-in user with a given role can perform a specific operation on a trade e.g a Support user should not be able to CREATE a trade
+    // So instead of hardcoding the role, we fetch the user from the application user database table using their loginId and get their role dynamically from the user profile table
+    // Then we check if the user's role allows them to perform the requested operation based on predefined rules on the user_privilege table
+    // If the user does not have the required privileges, we log the unauthorized attempt and return false
+    // If the user has the required privileges, we return true allowing the operation to proceed
 
-    switch (role) {
-        case "TRADER":
-            return List.of("CREATE", "AMEND", "TERMINATE", "CANCEL", "DELETE","VIEW").contains(operation);
-        case "SALES":
-            return List.of("CREATE", "AMEND", "VIEW").contains(operation);
-        case "MIDDLE_OFFICE":
-            return List.of("AMEND", "VIEW").contains(operation);
-        case "SUPERUSER":
-            return List.of("CREATE", "AMEND", "TERMINATE", "CANCEL", "DELETE", "VIEW").contains(operation);
-        case "ADMIN":
-            return List.of("AMEND", "VIEW").contains(operation);
-        case "SUPPORT":
-            return operation.equals("VIEW");
-        default:
+    //LOGIC:Takes a user’s loginId and an actionName (e.g., "READ_TRADE")
+    //Confirms that the user’s profile and privileges allow that action.
+    
+    public boolean validateUserPrivileges(String userId, String operation, TradeDTO tradeDTO) {
+        if (userId == null || operation == null) {
+            logger.warn("LoginId or privilege is null");
             return false;
-    }
+        }
+
+        // Normalize operation to upper case to match the database values
+        operation = operation.toUpperCase();
+
+        // Retrieve the user from applicationUser database table using user loginId
+        var user = applicationUserRepository.findByLoginId(userId).orElse(null);
+        // If user not found or inactive, deny access
+        if (user == null || !user.isActive()){
+            logger.warn("User not found or user inactive: {}", userId);
+            return false;
+        }
+
+        //Get the user profile and ID
+        Long userProfileId = user.getUserProfile().getId();
+        Long userID = user.getId();
+
+        //Load the user profile
+        var userProfile = userProfileRepository.findById(userProfileId).orElse(null);
+        if (userProfile == null) {
+            logger.warn("User {} does not have a profile assigned: ", userId);
+            return false;
+        }
+
+        //If user is SUPERUSER, grant all privileges
+        // I am adding this explicitly as the SUPERUSER role should have unrestricted access
+        // and the privilege table does not have an entry for every possible operation
+        String userType = userProfile.getUserType().toUpperCase();
+        if (userType.equals("SUPERUSER")) return true;
+
+        // If user is a TRADER_SALES, grant specific privileges directly
+        // Again I am adding this explicitly as the privilege table did to assign all possible privileges to this role (looking at the current data in the privilege table)
+        if (userType.equals("TRADER_SALES")) {
+            List<String> traderPrivileges = List.of("BOOK_TRADE", "AMEND_TRADE", "READ_TRADE");
+            if (traderPrivileges.contains(operation)) return true;
+        }
+
+        // If user is MIDDLE_OFFICE, grant specific privileges directly
+        if (userType.equals("MO")) {
+            List<String> moPrivileges = List.of("READ_TRADE", "AMEND_TRADE");
+            if (moPrivileges.contains(operation)) return true;
+        }
+
+        // For other user types, check privileges from the user_privilege table
+        // Retrieve all privileges associated with the user profile
+        var userPrivileges = userPrivilegeRepository.findById(userID);
+        if (userPrivileges == null || userPrivileges.isEmpty()) {
+            logger.warn("User {} does not have any privileges assigned: ", userId);
+            return false;
+        }
+
+        //map privilege IDs to the privilege names in the privilege table
+        // A user can have multiple privileges, so we collect all privilege names into a list
+        List<Long> privilegeIds = userPrivileges.stream()
+                .map(UserPrivilege::getPrivilegeId)
+                .toList();
+
+        List<String> privilegeNames = privilegeRepository.findAllById(privilegeIds).stream()
+                    .map(Privilege::getName)
+                    .map(String::toUpperCase)
+                    .toList();
+
+        //check if the requested operation exists in the users's prilivilege list
+        return privilegeNames.contains(operation);
     }
 
+
+
+   
 
     // FOLA ADDED: New method to get trades analytics by trader ID
     public List<Trade> getTradesByTrader(Long traderId) {
