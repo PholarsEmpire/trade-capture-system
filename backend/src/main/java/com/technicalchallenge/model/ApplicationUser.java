@@ -3,6 +3,9 @@ package com.technicalchallenge.model;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
+
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.Setter;

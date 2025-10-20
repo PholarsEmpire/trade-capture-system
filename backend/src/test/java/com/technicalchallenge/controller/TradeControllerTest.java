@@ -2,20 +2,36 @@ package com.technicalchallenge.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.technicalchallenge.dto.DailySummaryDTO;
 import com.technicalchallenge.dto.TradeDTO;
+import com.technicalchallenge.dto.TradeSummaryDTO;
 import com.technicalchallenge.mapper.TradeMapper;
+import com.technicalchallenge.model.ApplicationUser;
 import com.technicalchallenge.model.Trade;
+import com.technicalchallenge.repository.ApplicationUserRepository;
+import com.technicalchallenge.security.CustomUserDetailsService;
 import com.technicalchallenge.service.TradeService;
+
+import io.swagger.v3.oas.annotations.Operation;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.MockitoAnnotations;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -24,13 +40,20 @@ import java.util.Optional;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import org.springframework.security.test.context.support.WithMockUser;
+
+
+
 @ExtendWith(SpringExtension.class)
 @WebMvcTest(TradeController.class)
+@AutoConfigureMockMvc(addFilters = false) // ✅ Disable Spring Security filters
+@WithMockUser(username = "simon", roles = "TRADER")
 public class TradeControllerTest {
 
     @Autowired
@@ -41,6 +64,15 @@ public class TradeControllerTest {
 
     @MockBean
     private TradeMapper tradeMapper;
+
+    @MockBean
+    private Authentication authentication;
+
+    @MockBean
+    private ApplicationUserRepository applicationUserRepository;
+
+    @InjectMocks
+    private CustomUserDetailsService customUserDetailsService;
 
     private ObjectMapper objectMapper;
 
@@ -78,6 +110,16 @@ public class TradeControllerTest {
         // Set up default mappings
         when(tradeMapper.toDto(any(Trade.class))).thenReturn(tradeDTO);
         when(tradeMapper.toEntity(any(TradeDTO.class))).thenReturn(trade);
+
+
+        // FOLA ADDED: Mock application user repository to return a valid user
+        MockitoAnnotations.openMocks(this);
+        ApplicationUser user = new ApplicationUser();
+        user.setLoginId("simon");
+        user.setPassword("password");
+        user.setActive(true);
+        when(applicationUserRepository.findByLoginId("simon"))
+            .thenReturn(Optional.of(user));
     }
 
     @Test
@@ -129,9 +171,14 @@ public class TradeControllerTest {
     }
 
     @Test
+    //@WithMockUser(username = "simon", roles = {"TRADER_SALES"})
     void testCreateTrade() throws Exception {
         // Given
-        when(tradeService.saveTrade(any(Trade.class), any(TradeDTO.class))).thenReturn(trade);
+        when(authentication.getName()).thenReturn("simon"); //returns simon as the logged-in user
+        when(tradeService.saveTrade(any(TradeDTO.class))).thenReturn(trade);
+        when(tradeService.validateUserPrivileges(anyString(), eq("CREATE_TRADE"), any(TradeDTO.class)))
+                            .thenReturn(true); //avoids calling real method
+        
         doNothing().when(tradeService).populateReferenceDataByName(any(Trade.class), any(TradeDTO.class));
 
         // When/Then
@@ -142,8 +189,7 @@ public class TradeControllerTest {
                  because POST endpoints should return 201 Created status by default, following REST conventions.*/
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.tradeId", is(1001)));
-
-        verify(tradeService).saveTrade(any(Trade.class), any(TradeDTO.class));
+        verify(tradeService).saveTrade(any(TradeDTO.class));
         verify(tradeService).populateReferenceDataByName(any(Trade.class), any(TradeDTO.class));
     }
 
@@ -162,7 +208,7 @@ public class TradeControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(content().string("Trade date is required"));
 
-        verify(tradeService, never()).saveTrade(any(Trade.class), any(TradeDTO.class));
+        verify(tradeService, never()).saveTrade(any(TradeDTO.class));
     }
 
     @Test
@@ -180,7 +226,7 @@ public class TradeControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(content().string("Book and Counterparty are required"));
 
-        verify(tradeService, never()).saveTrade(any(Trade.class), any(TradeDTO.class));
+        verify(tradeService, never()).saveTrade(any(TradeDTO.class));
     }
 
     @Test
@@ -222,7 +268,7 @@ public class TradeControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(content().string("Error updating trade: Trade ID in path must match Trade ID in request body"));
 
-        verify(tradeService, never()).saveTrade(any(Trade.class), any(TradeDTO.class));
+        verify(tradeService, never()).saveTrade(any(TradeDTO.class));
     }
 
     @Test
@@ -251,6 +297,10 @@ public class TradeControllerTest {
                         .content(objectMapper.writeValueAsString(invalidDTO)))
                 .andExpect(status().isBadRequest());
 
-        verify(tradeService, never()).createTrade(any(TradeDTO.class));
+        //verify(tradeService, never()).createTrade(any(TradeDTO.class));
+        verify(tradeService, never()).saveTrade(any(TradeDTO.class));
+
     }
+
+
 }

@@ -11,22 +11,30 @@ import com.technicalchallenge.model.Schedule;
 import com.technicalchallenge.model.Trade;
 import com.technicalchallenge.model.TradeLeg;
 import com.technicalchallenge.model.TradeStatus;
+import com.technicalchallenge.model.UserProfile;
 import com.technicalchallenge.repository.ApplicationUserRepository;
 import com.technicalchallenge.repository.BookRepository;
 import com.technicalchallenge.repository.CashflowRepository;
 import com.technicalchallenge.repository.CounterpartyRepository;
 import com.technicalchallenge.repository.HolidayCalendarRepository;
 import com.technicalchallenge.repository.LegTypeRepository;
+import com.technicalchallenge.repository.PrivilegeRepository;
 import com.technicalchallenge.repository.ScheduleRepository;
 import com.technicalchallenge.repository.TradeLegRepository;
 import com.technicalchallenge.repository.TradeRepository;
 import com.technicalchallenge.repository.TradeStatusRepository;
+import com.technicalchallenge.repository.UserProfileRepository;
+import com.technicalchallenge.validation.ValidationResult;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -35,10 +43,14 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
+
+
 @ExtendWith(MockitoExtension.class)
+//@MockitoSettings(strictness = Strictness.LENIENT)
 class TradeServiceTest {
 
     @Mock
@@ -69,6 +81,16 @@ class TradeServiceTest {
 
    @Mock
    private LegTypeRepository legTypeRepository;
+   
+    @Mock
+    private ApplicationUserRepository applicationUserRepository;
+
+    @Mock
+    private UserProfileRepository userProfileRepository;
+
+    @Mock
+    private PrivilegeRepository privilegeRepository;
+
 
 
    // End of FOLA ADDED
@@ -76,27 +98,31 @@ class TradeServiceTest {
     @Mock
     private AdditionalInfoService additionalInfoService;
 
+    @Spy // This will create a spy for the TradeService. A spy allows us to call real methods unless they are stubbed.
     @InjectMocks
     private TradeService tradeService;
 
     private TradeDTO tradeDTO;
     private Trade trade;
 
+
     // Declare mockBook and other mock objects as fields
     private Book mockBook;
     private Counterparty mockCounterparty;
     private TradeStatus mockTradeStatus;
-    private ApplicationUser mockTraderUser;
+    private ApplicationUser testUser;
     private TradeLeg mockTradeLeg;
 
     @BeforeEach
     void setUp() {
+        // Initialize Mockito annotations
+        MockitoAnnotations.openMocks(this);
         // Set up test data
         tradeDTO = new TradeDTO();
         tradeDTO.setTradeId(100001L);
-        tradeDTO.setTradeDate(LocalDate.of(2025, 1, 15));
-        tradeDTO.setTradeStartDate(LocalDate.of(2025, 1, 17));
-        tradeDTO.setTradeMaturityDate(LocalDate.of(2026, 1, 17));
+        tradeDTO.setTradeDate(LocalDate.now().minusDays(5));
+        tradeDTO.setTradeStartDate(LocalDate.now().minusDays(3));
+        tradeDTO.setTradeMaturityDate(LocalDate.now().plusYears(1));
 
 
         //FOLA ADDED: Setting bookName and counterpartyName to avoid null pointer exceptions in service methods
@@ -123,14 +149,28 @@ class TradeServiceTest {
         mockBook = new Book();
         mockCounterparty = new Counterparty();
         mockTradeStatus = new TradeStatus();
-        mockTraderUser = new ApplicationUser();
+        testUser = new ApplicationUser();
         mockTradeLeg = new TradeLeg();
         mockTradeLeg.setLegId(1L);
+
+        testUser.setLoginId("testUser");
+        testUser.setActive(true);
+        UserProfile userProfile = new UserProfile();
+        userProfile.setUserType("SUPERUSER");
+       
+
+         // Initialize a Trade object for reuse
 
         trade = new Trade();
         trade.setId(1L);
         trade.setTradeId(100001L);
         trade.setVersion(1); //FOLA ADDED: version to avoid null pointer exceptions
+
+        // Stub the validateUserPrivileges method to always return true for testing
+        tradeService = spy(tradeService); // Re-spy to ensure we have a fresh spy instance. Spy will call real methods unless stubbed.
+        //doReturn(true).when(tradeService).validateUserPrivileges(anyString(), anyString(), any());
+        lenient().doReturn(true).when(tradeService).validateUserPrivileges(any(), any(), any());
+
     }
 
     @Test
@@ -142,14 +182,16 @@ class TradeServiceTest {
         when(counterpartyRepository.findByName(anyString())).thenReturn(Optional.of(new com.technicalchallenge.model.Counterparty()));
         when(tradeStatusRepository.findByTradeStatus(anyString())).thenReturn(Optional.of(new com.technicalchallenge.model.TradeStatus()));
         when(tradeLegRepository.save(any(TradeLeg.class))).thenReturn(new TradeLeg());
-            // End of FOLA ADDED
+        lenient().when(applicationUserRepository.findByLoginId(anyString())).thenReturn(Optional.of(testUser));
+        lenient().when(tradeService.validateUserPrivileges(anyString(), anyString(), any())).thenReturn(true);
+        
 
         when(tradeRepository.save(any(Trade.class))).thenReturn(trade);
 
        
 
         // When
-        Trade result = tradeService.createTrade(tradeDTO);
+        Trade result = tradeService.createTrade(tradeDTO); 
 
         // Then
         assertNotNull(result);
@@ -170,7 +212,8 @@ class TradeServiceTest {
         
         // This assertion is intentionally wrong - candidates need to fix it
         //FOLA ADDED: I changed the expected message to match the actual exception message thrown in the service
-        assertEquals("Start date cannot be before trade date", exception.getMessage());
+        assertTrue(exception.getMessage().contains("Start date cannot be before trade date"));
+
     }
 
     @Test
@@ -258,8 +301,9 @@ class TradeServiceTest {
         when(bookRepository.findByBookName(anyString())).thenReturn(Optional.of(mockBook));
         when(counterpartyRepository.findByName(anyString())).thenReturn(Optional.of(mockCounterparty));
         when(tradeStatusRepository.findByTradeStatus("NEW")).thenReturn(Optional.of(mockTradeStatus));
-    
-        
+        lenient().when(applicationUserRepository.findByLoginId(anyString())).thenReturn(Optional.of(testUser));
+        lenient().when(userProfileRepository.findById(anyLong())).thenReturn(Optional.of(new UserProfile()));
+
         // Mock reference data lookups for TradeLegs
         Schedule mockSchedule = new Schedule();
         mockSchedule.setSchedule("Monthly");
@@ -283,5 +327,17 @@ class TradeServiceTest {
         // I expect 12 cashflows per leg, 2 legs = 24 cashflows
         verify(cashflowRepository, times(24)).save(any(Cashflow.class));
 
+    }
+
+
+    @Test
+    void testValidateTradeBusinessRules_InvalidDates_ShouldFail() {
+        tradeDTO.setTradeDate(LocalDate.now());
+        tradeDTO.setTradeStartDate(LocalDate.now().minusDays(5)); // invalid date given for testing
+
+        ValidationResult result = tradeService.validateTradeBusinessRules(tradeDTO);
+
+        assertFalse(result.isValid());
+        assertTrue(result.getErrors().contains("Start date cannot be before trade date"));
     }
 }
