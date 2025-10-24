@@ -26,7 +26,9 @@ public class ApplicationUserService {
     public boolean validateCredentials(String loginId, String password) {
         logger.debug("Validating credentials for user: {}", loginId);
         Optional<ApplicationUser> user = applicationUserRepository.findByLoginId(loginId);
-        return user.map(applicationUser -> applicationUser.getPassword().equals(password)).orElse(false);
+        //encode the password and compare with the stored encoded password
+        String encodedPassword = passwordEncoder.encode(password);
+        return passwordEncoder.matches(password, encodedPassword);
     }
 
     public List<ApplicationUser> getAllUsers() {

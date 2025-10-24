@@ -10,11 +10,8 @@ import com.technicalchallenge.specifications.TradeSpecifications;
 
 import com.technicalchallenge.validation.ValidationResult;
 
-import lombok.extern.java.Log;
 
 import org.springframework.beans.factory.annotation.Autowired;
-//import org.springframework.boot.autoconfigure.security.SecurityProperties.User;
-//import org.springframework.boot.autoconfigure.data.web.SpringDataWebProperties.Pageable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
@@ -25,12 +22,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.config.annotation.rsocket.RSocketSecurity.AuthorizePayloadsSpec.Access;
 import org.springframework.security.access.AccessDeniedException;
 
 
 
-//import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -38,9 +33,13 @@ import org.springframework.data.domain.Sort;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.AbstractMap;
 import java.util.ArrayList;
+//import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+//import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -89,6 +88,7 @@ public class TradeService {
     private UserProfileRepository userProfileRepository;
     @Autowired
     private PrivilegeRepository privilegeRepository;
+   
    
 
 
@@ -315,7 +315,7 @@ public class TradeService {
     @PreAuthorize("hasAnyRole('TRADER', 'TRADER_SALES', 'SALES', 'SUPERUSER')")
     public void deleteTrade(Long tradeId) {
         String loginId= getLoggedInUsername();
-        if(!validateUserPrivileges(loginId, "DELETE_TRADE", null)){
+        if(!validateUserPrivileges(loginId, "AMEND_TRADE", null)){
             throw new AccessDeniedException("User does not have privilege to delete trade");
         }
         logger.info("Deleting (cancelling) trade with ID: {}", tradeId);
@@ -377,7 +377,7 @@ public class TradeService {
     @PreAuthorize("hasAnyRole('TRADER', 'TRADER_SALES', 'SALES', 'SUPERUSER')")
     public Trade terminateTrade(Long tradeId) {
         String loginId= getLoggedInUsername();
-        if(!validateUserPrivileges(loginId, "TERMINATE_TRADE", null)){
+        if(!validateUserPrivileges(loginId, "AMEND_TRADE", null)){
             throw new AccessDeniedException("User does not have privilege to terminate trade");
         }
         logger.info("Terminating trade with ID: {}", tradeId);
@@ -401,7 +401,7 @@ public class TradeService {
     @PreAuthorize("hasAnyRole('TRADER', 'TRADER_SALES', 'SALES', 'SUPERUSER')")
     public Trade cancelTrade(Long tradeId) {
         String loginId= getLoggedInUsername();
-        if(!validateUserPrivileges(loginId, "CANCEL_TRADE", null)){
+        if(!validateUserPrivileges(loginId, "AMEND_TRADE", null)){
             throw new AccessDeniedException("User does not have privilege to cancel trade");
         }
         logger.info("Cancelling trade with ID: {}", tradeId);
@@ -811,42 +811,42 @@ public class TradeService {
 
     // FOLA ADDED: Validation method for trade legs consistency
     public ValidationResult validateTradeLegConsistency(List<TradeLegDTO> legs) {
-    ValidationResult result = new ValidationResult();
+        ValidationResult result = new ValidationResult();
 
-    if (legs.size() != 2) {
-        result.addError("Trade must have exactly 2 legs");
+        if (legs.size() != 2) {
+            result.addError("Trade must have exactly 2 legs");
+            return result;
+        }
+
+        TradeLegDTO leg1 = legs.get(0);
+        TradeLegDTO leg2 = legs.get(1);
+
+        // Same maturity date 
+        if (leg1.getCalculationPeriodSchedule() != null && leg2.getCalculationPeriodSchedule() != null &&
+            !leg1.getCalculationPeriodSchedule().equals(leg2.getCalculationPeriodSchedule())) {
+            result.addError("Both legs must have identical maturity dates");
+        }
+
+        // ✅ Opposite pay/receive
+        // If one leg is "Pay" the other must be "Receive"
+        if (leg1.getPayReceiveFlag() != null && leg2.getPayReceiveFlag() != null &&
+            leg1.getPayReceiveFlag().equalsIgnoreCase(leg2.getPayReceiveFlag())) {
+            result.addError("Legs must have opposite pay/receive flags");
+        }
+
+        // ✅ Floating leg must have an index. An index is required for floating legs to determine the reference rate.
+        if ("Floating".equalsIgnoreCase(leg1.getLegType()) && leg1.getIndexName() == null)
+            result.addError("Floating leg must have an index specified");
+        if ("Floating".equalsIgnoreCase(leg2.getLegType()) && leg2.getIndexName() == null)
+            result.addError("Floating leg must have an index specified");
+
+        // ✅ Fixed leg must have a rate. A rate is required for fixed legs to determine the payment amount.
+        if ("Fixed".equalsIgnoreCase(leg1.getLegType()) && leg1.getRate() == 0.0)
+            result.addError("Fixed leg must have a valid rate");
+        if ("Fixed".equalsIgnoreCase(leg2.getLegType()) && leg2.getRate() == 0.0)
+            result.addError("Fixed leg must have a valid rate");
+
         return result;
-    }
-
-    TradeLegDTO leg1 = legs.get(0);
-    TradeLegDTO leg2 = legs.get(1);
-
-    // Same maturity date 
-    if (leg1.getCalculationPeriodSchedule() != null && leg2.getCalculationPeriodSchedule() != null &&
-        !leg1.getCalculationPeriodSchedule().equals(leg2.getCalculationPeriodSchedule())) {
-        result.addError("Both legs must have identical maturity dates");
-    }
-
-    // ✅ Opposite pay/receive
-    // If one leg is "Pay" the other must be "Receive"
-    if (leg1.getPayReceiveFlag() != null && leg2.getPayReceiveFlag() != null &&
-        leg1.getPayReceiveFlag().equalsIgnoreCase(leg2.getPayReceiveFlag())) {
-        result.addError("Legs must have opposite pay/receive flags");
-    }
-
-    // ✅ Floating leg must have an index. An index is required for floating legs to determine the reference rate.
-    if ("Floating".equalsIgnoreCase(leg1.getLegType()) && leg1.getIndexName() == null)
-        result.addError("Floating leg must have an index specified");
-    if ("Floating".equalsIgnoreCase(leg2.getLegType()) && leg2.getIndexName() == null)
-        result.addError("Floating leg must have an index specified");
-
-    // ✅ Fixed leg must have a rate. A rate is required for fixed legs to determine the payment amount.
-    if ("Fixed".equalsIgnoreCase(leg1.getLegType()) && leg1.getRate() == 0.0)
-        result.addError("Fixed leg must have a valid rate");
-    if ("Fixed".equalsIgnoreCase(leg2.getLegType()) && leg2.getRate() == 0.0)
-        result.addError("Fixed leg must have a valid rate");
-
-    return result;
     }
 
 
@@ -863,74 +863,133 @@ public class TradeService {
     //LOGIC:Takes a user’s loginId and an actionName (e.g., "READ_TRADE")
     //Confirms that the user’s profile and privileges allow that action.
     
+    // public boolean validateUserPrivileges(String userId, String operation, TradeDTO tradeDTO) {
+    //     if (userId == null || operation == null) {
+    //         logger.warn("LoginId or privilege is null");
+    //         return false;
+    //     }
+
+    //     // Normalize operation to upper case to match the database values
+    //     operation = operation.toUpperCase();
+
+    //     // Retrieve the user from applicationUser database table using user loginId
+    //     var user = applicationUserRepository.findByLoginId(userId).orElse(null);
+    //     // If user not found or inactive, deny access
+    //     if (user == null || !user.isActive()){
+    //         logger.warn("User not found or user inactive: {}", userId);
+    //         return false;
+    //     }
+
+    //     //Get the user profile and ID
+    //     Long userProfileId = user.getUserProfile().getId();
+    //     Long userID = user.getId();
+
+    //     //Load the user profile
+    //     var userProfile = userProfileRepository.findById(userProfileId).orElse(null);
+    //     if (userProfile == null) {
+    //         logger.warn("User {} does not have a profile assigned: ", userId);
+    //         return false;
+    //     }
+
+    //     //If user is SUPERUSER, grant all privileges
+    //     // I am adding this explicitly as the SUPERUSER role should have unrestricted access
+    //     // and the privilege table does not have an entry for every possible operation
+    //     String userType = userProfile.getUserType().toUpperCase();
+    //     if (userType.equals("SUPERUSER")) return true;
+
+    //     // If user is a TRADER_SALES, grant specific privileges directly
+    //     // Again I am adding this explicitly as the privilege table did to assign all possible privileges to this role (looking at the current data in the privilege table)
+    //     if (userType.equals("TRADER_SALES")) {
+    //         List<String> traderPrivileges = List.of("BOOK_TRADE", "AMEND_TRADE", "READ_TRADE");
+    //         if (traderPrivileges.contains(operation)) return true;
+    //     }
+
+    //     // If user is MIDDLE_OFFICE, grant specific privileges directly
+    //     if (userType.equals("MO")) {
+    //         List<String> moPrivileges = List.of("READ_TRADE", "AMEND_TRADE");
+    //         if (moPrivileges.contains(operation)) return true;
+    //     }
+
+    //     //Retrieve privileges for other user types from user_privilege table
+    //     List<UserPrivilege> userPrivileges = userPrivilegeRepository.findByUserId(userID);
+
+    //     // For other user types, check privileges from the user_privilege table
+    //     // Retrieve all privileges associated with the user profile
+    //     if (userPrivileges == null || userPrivileges.isEmpty()) {
+    //         logger.warn("User {} does not have any privileges assigned: ", userId);
+    //         return false;
+    //     }
+
+    //     //map privilege IDs to the privilege names in the privilege table
+    //     // A user can have multiple privileges, so we collect all privilege names into a list
+    //     List<Long> privilegeIds = userPrivileges.stream()
+    //             .map(UserPrivilege::getPrivilegeId)
+    //             .toList();
+
+    //     List<String> privilegeNames = privilegeRepository.findAllById(privilegeIds).stream()
+    //                 .map(Privilege::getName)
+    //                 .map(String::toUpperCase)
+    //                 .toList();
+
+    //     //check if the requested operation exists in the users's prilivilege list
+    //     return privilegeNames.contains(operation);
+    // }
+
+
     public boolean validateUserPrivileges(String userId, String operation, TradeDTO tradeDTO) {
         if (userId == null || operation == null) {
             logger.warn("LoginId or privilege is null");
             return false;
         }
 
-        // Normalize operation to upper case to match the database values
+        // Normalize operation name
         operation = operation.toUpperCase();
 
-        // Retrieve the user from applicationUser database table using user loginId
+        // 1️⃣ Retrieve user record
         var user = applicationUserRepository.findByLoginId(userId).orElse(null);
-        // If user not found or inactive, deny access
-        if (user == null || !user.isActive()){
-            logger.warn("User not found or user inactive: {}", userId);
+        if (user == null || !user.isActive()) {
+            logger.warn("User not found or inactive: {}", userId);
             return false;
         }
 
-        //Get the user profile and ID
-        Long userProfileId = user.getUserProfile().getId();
-        Long userID = user.getId();
-
-        //Load the user profile
-        var userProfile = userProfileRepository.findById(userProfileId).orElse(null);
+        // 2️⃣ Retrieve user profile (role)
+        var userProfile = userProfileRepository.findById(user.getUserProfile().getId()).orElse(null);
         if (userProfile == null) {
-            logger.warn("User {} does not have a profile assigned: ", userId);
+            logger.warn("User {} does not have a profile assigned", userId);
             return false;
         }
 
-        //If user is SUPERUSER, grant all privileges
-        // I am adding this explicitly as the SUPERUSER role should have unrestricted access
-        // and the privilege table does not have an entry for every possible operation
         String userType = userProfile.getUserType().toUpperCase();
-        if (userType.equals("SUPERUSER")) return true;
 
-        // If user is a TRADER_SALES, grant specific privileges directly
-        // Again I am adding this explicitly as the privilege table did to assign all possible privileges to this role (looking at the current data in the privilege table)
-        if (userType.equals("TRADER_SALES")) {
-            List<String> traderPrivileges = List.of("BOOK_TRADE", "AMEND_TRADE", "READ_TRADE");
-            if (traderPrivileges.contains(operation)) return true;
+        // 3️⃣ SUPERUSER: always allowed to perform any operation
+        if (userType.equals("SUPERUSER")) {
+            logger.info("SUPERUSER detected - full access granted for {}", userId);
+            return true;
         }
 
-        // If user is MIDDLE_OFFICE, grant specific privileges directly
-        if (userType.equals("MO")) {
-            List<String> moPrivileges = List.of("READ_TRADE", "AMEND_TRADE");
-            if (moPrivileges.contains(operation)) return true;
-        }
-
-        // For other user types, check privileges from the user_privilege table
-        // Retrieve all privileges associated with the user profile
-        var userPrivileges = userPrivilegeRepository.findById(userID);
+        // 4️⃣ Get all privileges assigned to this user from user_privilege
+        List<UserPrivilege> userPrivileges = userPrivilegeRepository.findByUserId(user.getId());
         if (userPrivileges == null || userPrivileges.isEmpty()) {
-            logger.warn("User {} does not have any privileges assigned: ", userId);
+            logger.warn("User {} has no privileges assigned", userId);
             return false;
         }
 
-        //map privilege IDs to the privilege names in the privilege table
-        // A user can have multiple privileges, so we collect all privilege names into a list
+        // 5️⃣ Extract privilege IDs
         List<Long> privilegeIds = userPrivileges.stream()
                 .map(UserPrivilege::getPrivilegeId)
                 .toList();
 
+        // 6️⃣ Retrieve privilege names from the privilege table
         List<String> privilegeNames = privilegeRepository.findAllById(privilegeIds).stream()
-                    .map(Privilege::getName)
-                    .map(String::toUpperCase)
-                    .toList();
+                .map(Privilege::getName)
+                .map(String::toUpperCase)
+                .toList();
 
-        //check if the requested operation exists in the users's prilivilege list
-        return privilegeNames.contains(operation);
+        // 7️⃣ Check if operation exists in user's privileges
+        boolean hasPrivilege = privilegeNames.contains(operation);
+
+        logger.info("User {} of type {} requesting operation {} -> {}", userId, userType, operation, hasPrivilege);
+        return hasPrivilege;
     }
 
 
@@ -938,11 +997,20 @@ public class TradeService {
    
 
     // FOLA ADDED: New method to get trades analytics by trader ID
-    public List<Trade> getTradesByTrader(Long traderId) {
+    public List<Trade> getTradesByTrader() {
+        // Get logged-in user's username
+        String username = getLoggedInUsername();
+
+        // If no user is logged in, send a warning and return empty list
+        if (username == null) {
+            logger.warn("No authenticated user found");
+            return new ArrayList<>();
+        }
+
         return tradeRepository.findAll().stream()
-                .filter(trade -> trade.getTraderUser() != null &&
-                        trade.getTraderUser().getId().equals(traderId))
-                .collect(Collectors.toList());
+                    .filter(trade -> trade.getTraderUser() != null &&
+                            trade.getTraderUser().getLoginId().equals(username))
+                    .collect(Collectors.toList());
     }
 
     // FOLA ADDED: New method to get trades summary/ analytics by book ID
@@ -956,20 +1024,68 @@ public class TradeService {
     public TradeSummaryDTO getTradeSummary() {
         List<Trade> trades = tradeRepository.findAll();
 
+        // Total number of trades
         long totalTrades = trades.size();
 
+        // Calculate trades by status
         var tradesByStatus = trades.stream()
                 .collect(Collectors.groupingBy(
                         t -> t.getTradeStatus() != null ? t.getTradeStatus().getTradeStatus() : "UNKNOWN",
                         Collectors.counting()
                 ));
 
+        
+       
+        // Calculate trades by currency (count each trade for every currency it uses)
+        //Trades don't have a direct currency field, so we derive it from trade legs
+        var tradesByCurrency = trades.stream()
+                .filter(t -> !t.getTradeLegs().isEmpty())
+                .flatMap(t -> t.getTradeLegs().stream()
+                        .map(leg -> leg.getCurrency() != null ? 
+                                leg.getCurrency().getCurrency() : "UNKNOWN")
+                        .distinct() // Remove duplicates within the same trade
+                        .map(currency -> new AbstractMap.SimpleEntry<>(currency, 1L)))
+                .collect(Collectors.groupingBy(
+                        Map.Entry::getKey,
+                        Collectors.summingLong(Map.Entry::getValue)
+                ));
+
+
+        // Calculate notional by currency
         var notionalByCurrency = trades.stream()
                 .flatMap(t -> t.getTradeLegs().stream())
                 .collect(Collectors.groupingBy(
                         leg -> leg.getCurrency() != null ? leg.getCurrency().getCurrency() : "UNKNOWN",
                         Collectors.reducing(BigDecimal.ZERO, TradeLeg::getNotional, BigDecimal::add)
                 ));
+
+        // Calculate notional by trade type
+        //This will filter out trades without a trade type to avoid null pointer exceptions
+        // group by trade type and sum notionals across all legs of trades for that type
+       var notionalByType = trades.stream()
+        .filter(t -> t.getTradeType() != null)
+        .collect(Collectors.toMap(
+                t -> t.getTradeType().getTradeType(),
+                t -> t.getTradeLegs().stream()
+                      .map(TradeLeg::getNotional)
+                      .reduce(BigDecimal.ZERO, BigDecimal::add),
+                BigDecimal::add // Merge function for duplicate keys
+        ));
+
+
+        // Calculate notional by counterparty
+        //This will filter out trades without a counterparty to avoid null pointer exceptions
+        // group by counterparty name and sum notionals across all legs of trades for that counterparty
+       var notionalByCounterparty = trades.stream()
+        .filter(t -> t.getCounterparty() != null)
+        .collect(Collectors.toMap(
+                t -> t.getCounterparty().getName(),
+                t -> t.getTradeLegs().stream()
+                      .map(TradeLeg::getNotional)
+                      .reduce(BigDecimal.ZERO, BigDecimal::add),
+                BigDecimal::add // Merge function for duplicate keys
+        ));
+
 
         var tradesByCounterparty = trades.stream()
                 .filter(t -> t.getCounterparty() != null)
@@ -985,43 +1101,331 @@ public class TradeService {
                         Collectors.counting()
                 ));
 
-        return new TradeSummaryDTO(totalTrades, tradesByStatus, notionalByCurrency, tradesByCounterparty, tradesByType);
+        
+        var tradesBySubType = trades.stream()
+                .filter(t -> t.getTradeSubType() != null)
+                .collect(Collectors.groupingBy(
+                        t -> t.getTradeSubType().getTradeSubType(),
+                        Collectors.counting()
+                ));
+
+
+
+        // Risk exposure calculation (simplified as total notional across all trades)
+        // Calculating risks based on net and gross exposure by counterparty, currency, and book
+        // Net exposure = sum of all trade values (positive and negative)
+        // Gross exposure = sum of absolute values (no netting off)
+        //PAY is negative (just like an expense; money going out), RECEIVE is positive (like income, money coming in)
+        // Risk calculations helps with limit monitoring and credit risk assessment
+        var netExposureByCounterparty = calculateNetExposureByCounterparty(trades);
+        var grossExposureByCounterparty = calculateGrossExposureByCounterparty(trades);
+        var netExposureByCurrency = calculateNetExposureByCurrency(trades);
+        var grossExposureByCurrency = calculateGrossExposureByCurrency(trades);
+        var netExposureByBook = calculateNetExposureByBook(trades);
+        var grossExposureByBook = calculateGrossExposureByBook(trades);
+        
+        BigDecimal totalNetExposure = netExposureByCounterparty.values().stream()
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalGrossExposure = grossExposureByCounterparty.values().stream()
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        //return new TradeSummaryDTO(totalTrades, tradesByStatus, tradesByCurrency, notionalByCurrency, notionalByType, notionalByCounterparty, tradesByCounterparty, tradesByType, tradesBySubType, risk);
+        return TradeSummaryDTO.builder()
+                .totalTrades(totalTrades)
+                .tradesByStatus(tradesByStatus)
+                .tradesByCurrency(tradesByCurrency)
+                .notionalByCurrency(notionalByCurrency)
+                .notionalByType(notionalByType)
+                .notionalByCounterparty(notionalByCounterparty)
+                .tradesByCounterparty(tradesByCounterparty)
+                .tradesByType(tradesByType)
+                .tradesBySubType(tradesBySubType)
+                .netExposureByCounterparty(netExposureByCounterparty)
+                .grossExposureByCounterparty(grossExposureByCounterparty)
+                .netExposureByCurrency(netExposureByCurrency)
+                .grossExposureByCurrency(grossExposureByCurrency)
+                .netExposureByBook(netExposureByBook)
+                .grossExposureByBook(grossExposureByBook)
+                .totalNetExposure(totalNetExposure)
+                .totalGrossExposure(totalGrossExposure)
+                .build();
     }
+
+
+    // Net exposure = sum of all trade values (positive and negative)
+    private Map<String, BigDecimal> calculateNetExposureByCounterparty(List<Trade> trades) {
+        return trades.stream()
+                .filter(t -> t.getCounterparty() != null)
+                .collect(Collectors.groupingBy(
+                        t -> t.getCounterparty().getName(),
+                        Collectors.reducing(BigDecimal.ZERO,
+                                this::calculateTradeNetValue,
+                                BigDecimal::add)
+                ));
+    }
+
+    // Gross exposure = sum of absolute values
+    private Map<String, BigDecimal> calculateGrossExposureByCounterparty(List<Trade> trades) {
+        return trades.stream()
+                .filter(t -> t.getCounterparty() != null)
+                .collect(Collectors.groupingBy(
+                        t -> t.getCounterparty().getName(),
+                        Collectors.reducing(BigDecimal.ZERO,
+                                t -> calculateTradeNetValue(t).abs(),
+                                BigDecimal::add)
+                ));
+    }
+
+    private Map<String, BigDecimal> calculateNetExposureByCurrency(List<Trade> trades) {
+        return trades.stream()
+                .flatMap(t -> t.getTradeLegs().stream())
+                .filter(leg -> leg.getCurrency() != null)
+                .collect(Collectors.groupingBy(
+                        leg -> leg.getCurrency().getCurrency(),
+                        Collectors.reducing(BigDecimal.ZERO,
+                                this::calculateLegValue,
+                                BigDecimal::add)
+                ));
+    }
+
+    private Map<String, BigDecimal> calculateGrossExposureByCurrency(List<Trade> trades) {
+        return trades.stream()
+                .flatMap(t -> t.getTradeLegs().stream())
+                .filter(leg -> leg.getCurrency() != null)
+                .collect(Collectors.groupingBy(
+                        leg -> leg.getCurrency().getCurrency(),
+                        Collectors.reducing(BigDecimal.ZERO,
+                                leg -> calculateLegValue(leg).abs(),
+                                BigDecimal::add)
+                ));
+    }
+
+    private Map<String, BigDecimal> calculateNetExposureByBook(List<Trade> trades) {
+        return trades.stream()
+                .filter(t -> t.getBook() != null)
+                .collect(Collectors.groupingBy(
+                        t -> t.getBook().getBookName(),
+                        Collectors.reducing(BigDecimal.ZERO,
+                                this::calculateTradeNetValue,
+                                BigDecimal::add)
+                ));
+    }
+
+    private Map<String, BigDecimal> calculateGrossExposureByBook(List<Trade> trades) {
+        return trades.stream()
+                .filter(t -> t.getBook() != null)
+                .collect(Collectors.groupingBy(
+                        t -> t.getBook().getBookName(),
+                        Collectors.reducing(BigDecimal.ZERO,
+                                t -> calculateTradeNetValue(t).abs(),
+                                BigDecimal::add)
+                ));
+    }
+
+    // Helper method to calculate trade's net value (sum of all legs with proper signs)
+    private BigDecimal calculateTradeNetValue(Trade trade) {
+        return trade.getTradeLegs().stream()
+                .map(this::calculateLegValue)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+
+    // Helper method to calculate individual leg value (considering buy/sell direction)
+    private BigDecimal calculateLegValue(TradeLeg leg) {
+        BigDecimal notional = leg.getNotional() != null ? leg.getNotional() : BigDecimal.ZERO;
+        
+        // For swaps: pay leg is negative, receive leg is positive
+        if (leg.getPayReceiveFlag() != null) {
+            String direction = leg.getPayReceiveFlag().getPayRec();
+            if ("PAY".equalsIgnoreCase(direction)) {
+                return notional.negate();
+            } else if ("RECEIVE".equalsIgnoreCase(direction)) {
+                return notional;
+            }
+        }
+        
+        return notional; // Default to positive if no direction specified
+    }
+
+
+
+
+
 
     // FOLA ADDED: New method to get daily trade summary/ analytics
     public DailySummaryDTO getDailySummary() {
         LocalDate today = LocalDate.now();
-        List<Trade> todayTrades = tradeRepository.findAll().stream()
+
+        List<Trade> todaysTrades = tradeRepository.findAll().stream()
                 .filter(t -> t.getTradeDate() != null && t.getTradeDate().isEqual(today))
                 .collect(Collectors.toList());
 
-        long tradeCount = todayTrades.size();
-        BigDecimal totalNotional = todayTrades.stream()
+        long todaysTradeCount = todaysTrades.size();
+
+        BigDecimal todaysTotalNotional = todaysTrades.stream()
                 .flatMap(t -> t.getTradeLegs().stream())
                 .map(TradeLeg::getNotional)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        BigDecimal averageNotional = tradeCount > 0
-                ? totalNotional.divide(BigDecimal.valueOf(tradeCount), 2, java.math.RoundingMode.HALF_UP)
+        BigDecimal todaysAverageNotional = todaysTradeCount > 0
+                ? todaysTotalNotional.divide(BigDecimal.valueOf(todaysTradeCount), 2, java.math.RoundingMode.HALF_UP)
                 : BigDecimal.ZERO;
 
-        long newTrades = todayTrades.stream()
+        long todaysNewTrades = todaysTrades.stream()
                 .filter(t -> t.getTradeStatus() != null && "NEW".equalsIgnoreCase(t.getTradeStatus().getTradeStatus()))
                 .count();
 
-        long amendedTrades = todayTrades.stream()
+        long todaysAmendedTrades = todaysTrades.stream()
                 .filter(t -> t.getTradeStatus() != null && "AMENDED".equalsIgnoreCase(t.getTradeStatus().getTradeStatus()))
                 .count();
 
-        long terminatedTrades = todayTrades.stream()
+        long todaysTerminatedTrades = todaysTrades.stream()
                 .filter(t -> t.getTradeStatus() != null && "TERMINATED".equalsIgnoreCase(t.getTradeStatus().getTradeStatus()))
                 .count();
 
-        // Simulate comparison with yesterday
-        long yesterdayTrades = (long) (tradeCount * 0.9); // placeholder for demo
-        BigDecimal dayOverDayChange = BigDecimal.valueOf(((double) (tradeCount - yesterdayTrades) / yesterdayTrades) * 100);
 
-        return new DailySummaryDTO(today.toString(), tradeCount, totalNotional, averageNotional, newTrades, amendedTrades, terminatedTrades, dayOverDayChange);
+        // Yesterday's summary for comparison
+        LocalDate yesterday = today.minusDays(1);
+        
+        List<Trade> listOfYesterdayTrades = tradeRepository.findAll().stream()
+                .filter(t -> t.getTradeDate() != null && t.getTradeDate().isEqual(yesterday))
+                .collect(Collectors.toList());
+
+        long yesterdayTradeCount = listOfYesterdayTrades.size();
+
+        BigDecimal yesterdayTotalNotional = listOfYesterdayTrades.stream()
+                .flatMap(t -> t.getTradeLegs().stream())
+                .map(TradeLeg::getNotional)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal yesterdayAverageNotional = yesterdayTradeCount > 0
+                ? yesterdayTotalNotional.divide(BigDecimal.valueOf(yesterdayTradeCount), 2, java.math.RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
+       
+        // Calculate day-over-day change percentage (current-previous)/previous * 100
+        long difference = todaysTradeCount - yesterdayTradeCount;
+        BigDecimal dayOverDayChange = yesterdayTradeCount > 0
+                ? BigDecimal.valueOf(((double) difference / yesterdayTradeCount) * 100)
+                : BigDecimal.ZERO;
+
+
+
+
+        //USER SPECIFIC PERFORMANCE METRICS
+        // Get logged-in user's username and filter today's trades for that user
+        String username = getLoggedInUsername();
+
+        Map<String, Long> todaysTradesByLoggedInTrader = new java.util.HashMap<>();
+        if (username != null) {
+            todaysTradesByLoggedInTrader = todaysTrades.stream()
+                    .filter(t -> t.getTraderUser() != null &&
+                            t.getTraderUser().getLoginId().equals(username))
+                    .collect(Collectors.groupingBy(
+                            t -> t.getTraderUser().getLoginId(),
+                            Collectors.counting()
+                    ));
+
+            long userTodaysTradeCount = todaysTradesByLoggedInTrader.values().stream().mapToLong(Long::longValue).sum();
+            // You can add more user-specific metrics here as needed
+            logger.info("User {} made {} trades today", username, userTodaysTradeCount);
+        } else {
+            logger.warn("No authenticated user found for user-specific metrics");
+        }
+
+
+        //calculate notional for today's trades by the logged-in user
+        String loggedInUsername = getLoggedInUsername();
+        Map<String, BigDecimal> todaysNotionalByLoggedInTrader = todaysTrades.stream()
+                .filter(t -> t.getTraderUser() != null && t.getTraderUser().getLoginId().equals(loggedInUsername))
+                .collect(Collectors.groupingBy(
+                        t -> t.getTraderUser().getLoginId(),
+                        Collectors.reducing(BigDecimal.ZERO,
+                            t -> t.getTradeLegs().stream()
+                                    .map(TradeLeg::getNotional)
+                                    .reduce(BigDecimal.ZERO, BigDecimal::add),
+                            BigDecimal::add)
+            ));
+
+        //Get today's trades by all Trader
+        Map<String, Long> tradesByTrader = todaysTrades.stream()
+            .filter(t -> t.getTraderUser() != null)
+            .collect(Collectors.groupingBy(
+                    t -> t.getTraderUser().getFirstName() + " " + t.getTraderUser().getLastName(),
+                    Collectors.counting()
+            ));
+
+        //Get today's notional by all traders
+        Map<String, BigDecimal> notionalByTrader = todaysTrades.stream()
+            .filter(t -> t.getTraderUser() != null)
+            .collect(Collectors.groupingBy(
+                    t -> t.getTraderUser().getFirstName() + " " + t.getTraderUser().getLastName(),
+                    Collectors.reducing(BigDecimal.ZERO,
+                            t -> t.getTradeLegs().stream()
+                                    .map(TradeLeg::getNotional)
+                                    .reduce(BigDecimal.ZERO, BigDecimal::add),
+                            BigDecimal::add)
+            ));
+
+        //Get today's trades by all Inputter
+        Map<String, Long> tradesByInputter = todaysTrades.stream()
+            .filter(t -> t.getTradeInputterUser() != null)
+            .collect(Collectors.groupingBy(
+                    t -> t.getTradeInputterUser().getFirstName() + " " + t.getTradeInputterUser().getLastName(),
+                    Collectors.counting()
+            ));
+
+
+        //TRADE SUMMARIES BY BOOK
+        Map<String, Long> tradesByBook = todaysTrades.stream()
+            .filter(t -> t.getBook() != null)
+            .collect(Collectors.groupingBy(
+                    t -> t.getBook().getBookName(),
+                    Collectors.counting()
+            ));
+        
+        Map<String, BigDecimal> notionalByBook = todaysTrades.stream()
+                .filter(t -> t.getBook() != null)
+                .collect(Collectors.groupingBy(
+                        t -> t.getBook().getBookName(),
+                        Collectors.reducing(BigDecimal.ZERO,
+                                t -> t.getTradeLegs().stream()
+                                        .map(TradeLeg::getNotional)
+                                        .reduce(BigDecimal.ZERO, BigDecimal::add),
+                                BigDecimal::add)
+                ));
+        
+        Map<String, Map<String, Long>> statusByBook = todaysTrades.stream()
+                .filter(t -> t.getBook() != null && t.getTradeStatus() != null)
+                .collect(Collectors.groupingBy(
+                        t -> t.getBook().getBookName(),
+                        Collectors.groupingBy(
+                                t -> t.getTradeStatus().getTradeStatus(),
+                                Collectors.counting()
+                        )
+                ));
+
+        // Populate the DailySummaryDTO with the calculated values
+        return DailySummaryDTO.builder()
+                .todaysTradeCount(todaysTradeCount)
+                .todaysTotalNotional(todaysTotalNotional)
+                .todaysAverageNotional(todaysAverageNotional)
+                .todaysNewTrades(todaysNewTrades)
+                .todaysAmendedTrades(todaysAmendedTrades)
+                .todaysTerminatedTrades(todaysTerminatedTrades)
+                .yesterdayTradeCount(yesterdayTradeCount)
+                .yesterdayTotalNotional(yesterdayTotalNotional)
+                .yesterdayAverageNotional(yesterdayAverageNotional)
+                .dayOverDayChangePercentage(dayOverDayChange)
+                .todaysTradesByLoggedInTrader(todaysTradesByLoggedInTrader)
+                .todaysNotionalByLoggedInTrader(todaysNotionalByLoggedInTrader)
+                .tradesByTrader(tradesByTrader)
+                .notionalByTrader(notionalByTrader)
+                .tradesByInputter(tradesByInputter)
+                .tradesByBook(tradesByBook)
+                .notionalByBook(notionalByBook)
+                .statusByBook(statusByBook)
+                .build();
     }
 
 

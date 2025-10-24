@@ -23,4 +23,6 @@ public class AuthorizationController {
                 ResponseEntity.ok("Login successful") :
                 ResponseEntity.status(HttpStatus.FORBIDDEN).body("Login failed");
     }
+
+
 }

@@ -225,7 +225,13 @@ public class SecurityConfig {
         http
             .csrf(csrf -> csrf.disable())
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+
+            
+
             .authorizeHttpRequests(auth -> auth
+
+             // Protected endpoints
+            //.requestMatchers(mvc.pattern("/api/**")).authenticated()
                 // Publicly accessible endpoints
                 .requestMatchers(
                     mvc.pattern("/swagger-ui/**"),
@@ -233,11 +239,11 @@ public class SecurityConfig {
                     mvc.pattern("/swagger-resources/**"),
                     mvc.pattern("/api-docs/**"),
                     mvc.pattern("/h2-console/**"),
-                    mvc.pattern("/auth/**")
+                    mvc.pattern("/auth/**"),
+                    mvc.pattern("/api/login/**")
                 ).permitAll()
 
-                // Protected endpoints
-                .requestMatchers(mvc.pattern("/api/**")).authenticated()
+               
 
                 // Everything else public
                 .anyRequest().permitAll()

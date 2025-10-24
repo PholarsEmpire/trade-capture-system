@@ -1,10 +1,13 @@
 package com.technicalchallenge.controller;
 
+import com.technicalchallenge.dto.DailySummaryDTO;
 //import com.technicalchallenge.dto.DailySummaryDTO;
 import com.technicalchallenge.dto.TradeDTO;
+import com.technicalchallenge.dto.TradeSummaryDTO;
 //import com.technicalchallenge.dto.TradeSummaryDTO;
 import com.technicalchallenge.mapper.TradeMapper;
 import com.technicalchallenge.model.Trade;
+import com.technicalchallenge.security.CustomUserDetailsService;
 //import com.technicalchallenge.rsql.RsqlSpecificationBuilder;
 import com.technicalchallenge.service.TradeService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,14 +16,18 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 //import org.springframework.boot.autoconfigure.data.web.SpringDataWebProperties.Pageable;
 import org.springframework.data.domain.Page;
-//import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-//import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.Sort;
 //import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.method.P;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -294,7 +301,7 @@ public class TradeController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
-            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(defaultValue = "tradeDate") String sortBy,
             @RequestParam(defaultValue = "DESC") String direction
@@ -332,13 +339,62 @@ public class TradeController {
         @ApiResponse(responseCode = "400", description = "Invalid RSQL syntax"),
         @ApiResponse(responseCode = "500", description = "Internal server error") 
     })
-    public ResponseEntity<Page<Trade>> searchByRsql(
-            @RequestParam String query,                      // e.g. counterparty.name==BigBank;status==LIVE
-            //Pageable parameter to support pagination and sorting of results
-            @PageableDefault(size = 20, sort = "id") Pageable pageable
-    ) {
-        Page<Trade> results =tradeService.searchByRsql(query, pageable);
-        return ResponseEntity.ok(results);
+    public ResponseEntity<?> searchByRsql(
+            @RequestParam String query,
+            @PageableDefault(size = 20, sort = "id") Pageable pageable) {
+        try {
+            Page<Trade> results = tradeService.searchByRsql(query, pageable);
+            Page<TradeDTO> tradeDTOs = results.map(tradeMapper::toDto);
+            return ResponseEntity.ok(tradeDTOs);
+        } catch (Exception e) {
+            logger.error("Error parsing RSQL query: {}", e.getMessage());
+            return ResponseEntity.badRequest().body("Invalid RSQL query: " + e.getMessage());
+        }
     }
+
+    // FOLA ADDED: New endpoint to get trades by trader ID
+    // This endpoint retrieves trades belonging to the currently logged-in trader
+    @GetMapping("/my-trades")
+    @Operation(summary = "Get personal trades", description = "Retrieves trades belonging to the currently logged-in trader.")
+    @PreAuthorize("hasAnyRole('TRADER', 'TRADER_SALES', 'SALES', 'SUPERUSER' )")
+    public ResponseEntity<List<TradeDTO>> getMyTrades() {
+        
+        //use the service to fetch/find trades by username/loginId
+        var trades = tradeService.getTradesByTrader()
+                .stream().map(tradeMapper::toDto)
+                .toList();
+        return ResponseEntity.ok(trades);
+    }
+
+    // FOLA ADDED: New endpoint to get trades by book ID
+    // This endpoint retrieves trades associated with a specific trading book
+    @GetMapping("/book/{id}/trades")
+    @Operation(summary = "Get trades by book", description = "Retrieves all trades for a given trading book.")
+    @PreAuthorize("hasAnyRole('TRADER', 'TRADER_SALES', 'SUPERUSER', 'MIDDLE_OFFICE', 'MO', 'ADMIN')")
+    public ResponseEntity<List<TradeDTO>> getBookTrades(@PathVariable Long id) {
+        var trades = tradeService.getTradesByBook(id)
+                .stream().map(tradeMapper::toDto)
+                .toList();
+        return ResponseEntity.ok(trades);
+    }
+
+    // FOLA ADDED: New endpoint to get overall trade summary/ analytics
+    // This endpoint provides aggregated trade statistics for dashboards and reports
+    @GetMapping("/summary")
+    @Operation(summary = "Trade summary", description = "Provides trade summary statistics by status, currency, and counterparty.")
+    @PreAuthorize("hasAnyRole('TRADER', 'TRADER_SALES', 'SUPERUSER', 'MIDDLE_OFFICE' , 'MO', 'ADMIN', 'SUPPORT' )")
+    public ResponseEntity<TradeSummaryDTO> getTradeSummary() {
+        return ResponseEntity.ok(tradeService.getTradeSummary());
+    }
+
+    // FOLA ADDED: New endpoint to get daily trade summary/ analytics
+    // This endpoint provides a summary of today's trade activity for traders and managers
+    @GetMapping("/daily-summary")
+    @Operation(summary = "Daily trade summary", description = "Provides today's trade activity summary for traders and managers.")
+    @PreAuthorize("hasAnyRole('TRADER', 'TRADER_SALES', 'SUPERUSER', 'MIDDLE_OFFICE' , 'MO', 'ADMIN', 'SUPPORT' )")
+    public ResponseEntity<DailySummaryDTO> getDailySummary() {
+        return ResponseEntity.ok(tradeService.getDailySummary());
+    }
+
 
 }
