@@ -28,7 +28,7 @@ INSERT INTO application_user (id, first_name, last_name, login_id, password, act
 INSERT INTO privilege (id, name) VALUES (1000, 'BOOK_TRADE'), (1001, 'AMEND_TRADE'),(1002, 'READ_TRADE'), (1003, 'READ_USER'), (1004,'WRITE_USER'), (1005,'READ_STATIC_DATA'), (1006,'WRITE_STATIC_DATA');
 
 -- User Privileges (Fixed to match UserPrivilege entity structure - no separate id column)
-INSERT INTO user_privilege (user_id, privilege_id) VALUES (1000, 1000), (1001, 1001), (1000, 1002), (1003, 1000), (1004, 1001), (1005, 1000);
+INSERT INTO user_privilege (user_id, privilege_id) VALUES (1000, 1000), (1001, 1002), (1000, 1002), (1003, 1000), (1003, 1001), (1003, 1002), (1004, 1001), (1004, 1002), (1005, 1000), (1005, 1001), (1005, 1002);
 
 -- Counterparties
 INSERT INTO counterparty (id, name, address, phone_number, internal_code, created_date, last_modified_date, active) VALUES

@@ -12,10 +12,12 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface UserPrivilegeRepository extends JpaRepository<UserPrivilege, Long> {
-    // @Query("""
-    //     SELECT p FROM Privilege p
-    //     JOIN UserPrivilege up ON up.privilege.id = p.id
-    //     WHERE up.user.id = :userId
-    // """)
-    // List<Privilege> findPrivilegesByUserId(@Param("userId") String userId);
+    @Query("""
+        SELECT p FROM Privilege p
+        JOIN UserPrivilege up ON up.privilegeId = p.id
+        WHERE up.userId = :userId
+    """)
+    List<Privilege> findPrivilegesByUserId(@Param("userId") String userId);
+
+    List<UserPrivilege> findByUserId(Long userID);
 }

@@ -1,16 +1,20 @@
 package com.technicalchallenge.service;
 
+import com.technicalchallenge.dto.DailySummaryDTO;
 import com.technicalchallenge.dto.TradeDTO;
 import com.technicalchallenge.dto.TradeLegDTO;
+import com.technicalchallenge.dto.TradeSummaryDTO;
 import com.technicalchallenge.model.ApplicationUser;
 import com.technicalchallenge.model.Book;
 import com.technicalchallenge.model.Cashflow;
 import com.technicalchallenge.model.Counterparty;
 import com.technicalchallenge.model.LegType;
+import com.technicalchallenge.model.Privilege;
 import com.technicalchallenge.model.Schedule;
 import com.technicalchallenge.model.Trade;
 import com.technicalchallenge.model.TradeLeg;
 import com.technicalchallenge.model.TradeStatus;
+import com.technicalchallenge.model.UserPrivilege;
 import com.technicalchallenge.model.UserProfile;
 import com.technicalchallenge.repository.ApplicationUserRepository;
 import com.technicalchallenge.repository.BookRepository;
@@ -23,10 +27,12 @@ import com.technicalchallenge.repository.ScheduleRepository;
 import com.technicalchallenge.repository.TradeLegRepository;
 import com.technicalchallenge.repository.TradeRepository;
 import com.technicalchallenge.repository.TradeStatusRepository;
+import com.technicalchallenge.repository.UserPrivilegeRepository;
 import com.technicalchallenge.repository.UserProfileRepository;
 import com.technicalchallenge.validation.ValidationResult;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -35,17 +41,27 @@ import org.mockito.MockitoAnnotations;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import com.technicalchallenge.model.Currency;
+import com.technicalchallenge.model.PayRec;
 
 
 
@@ -90,6 +106,9 @@ class TradeServiceTest {
 
     @Mock
     private PrivilegeRepository privilegeRepository;
+
+    @Mock
+    private UserPrivilegeRepository userPrivilegeRepository;
 
 
 
@@ -197,6 +216,7 @@ class TradeServiceTest {
         assertNotNull(result);
         assertEquals(100001L, result.getTradeId());
         verify(tradeRepository).save(any(Trade.class));
+        
     }
 
     @Test
@@ -330,7 +350,24 @@ class TradeServiceTest {
     }
 
 
+
     @Test
+    @DisplayName("Test RSQL search with invalid query. This test should fail gracefully.")
+    void testRsqlSearchInvalidQuery_shouldFail() {
+        String query = "invalid.field==value";
+        Pageable pageable = PageRequest.of(0, 10);
+        
+        when(tradeRepository.findAll(org.mockito.ArgumentMatchers.<Specification<Trade>>any(), eq(pageable)))
+            .thenReturn(new PageImpl<>(List.of()));
+
+        Page<Trade> result = tradeService.searchByRsql(query, pageable);
+
+        assertEquals(0, result.getTotalElements());
+    }
+
+
+    @Test
+    @DisplayName("Test to validate trade business rules with invalid dates. This should fail.")
     void testValidateTradeBusinessRules_InvalidDates_ShouldFail() {
         tradeDTO.setTradeDate(LocalDate.now());
         tradeDTO.setTradeStartDate(LocalDate.now().minusDays(5)); // invalid date given for testing
@@ -340,4 +377,166 @@ class TradeServiceTest {
         assertFalse(result.isValid());
         assertTrue(result.getErrors().contains("Start date cannot be before trade date"));
     }
+
+    @Test
+    @DisplayName("Test to validate trade business rules with valid dates. This should pass.")
+    void testValidateTradeBusinessRules_ValidDates_ShouldPass() {
+        tradeDTO.setTradeDate(LocalDate.now());
+        tradeDTO.setTradeStartDate(LocalDate.now().plusDays(5)); // valid date given for testing
+
+        ValidationResult result = tradeService.validateTradeBusinessRules(tradeDTO);
+
+        assertTrue(result.isValid());
+        assertTrue(result.getErrors().isEmpty());
+    }
+
+
+    @Test
+    @DisplayName("Test to validate that trade date is not more than 30 days in the past. This should fail.")
+    void testValidateTradeBusinessRules_TradeDateNotMoreThan30DaysInPast_ShouldFail() {
+        tradeDTO.setTradeDate(LocalDate.now().minusDays(35));
+        tradeDTO.setTradeStartDate(LocalDate.now());
+        ValidationResult result = tradeService.validateTradeBusinessRules(tradeDTO);
+
+        assertFalse(result.isValid());
+        assertTrue(result.getErrors().contains("Trade date cannot be more than 30 days in the past"));
+    }
+
+    @Test
+    @DisplayName("Test to validate that trade date within 30 days in the past. This should pass.")
+    void testValidateTradeBusinessRules_TradeDateWithin30DaysInPast_ShouldPass() {
+        tradeDTO.setTradeDate(LocalDate.now().minusDays(20));
+        tradeDTO.setTradeStartDate(LocalDate.now());
+        ValidationResult result = tradeService.validateTradeBusinessRules(tradeDTO);
+
+        assertTrue(result.isValid());
+        assertTrue(result.getErrors().isEmpty());
+    }
+
+
+    @Test
+    @DisplayName("Test to validate maturity date is after trade start/execution date and trade date. This should fail.")
+    void testValidateTradeBusinessRules_MaturityDateAfterTradeDates_ShouldFail() {
+        //tradeDTO.setTradeDate(LocalDate.now());
+        tradeDTO.setTradeStartDate(LocalDate.now().plusDays(5));
+        tradeDTO.setTradeMaturityDate(LocalDate.now().plusDays(2)); // Invalid maturity date for testing
+        ValidationResult result = tradeService.validateTradeBusinessRules(tradeDTO);
+
+        assertFalse(result.isValid());
+        assertTrue(result.getErrors().contains("Maturity date cannot be before start date or trade date"));
+    }
+
+
+    @Test
+    @DisplayName("Test trade leg consistency validation")
+    void testValidateTradeLegConsistency_shouldFail() {
+        TradeLegDTO leg1 = new TradeLegDTO();
+        leg1.setNotional(BigDecimal.valueOf(1000000));
+        leg1.setRate(0.05);
+        leg1.setLegType("Fixed");
+        leg1.setPayReceiveFlag("PAY");
+        
+
+        TradeLegDTO leg2 = new TradeLegDTO();
+        leg2.setNotional(BigDecimal.valueOf(1000000));
+        leg2.setRate(0.0);
+        leg2.setLegType("Floating");
+        leg2.setPayReceiveFlag("PAY"); // Both legs set to PAY, should fail consistency check
+        leg2.setIndexName("LIBOR");  //Floating leg needs index
+
+        List<TradeLegDTO> legs = List.of(leg1, leg2);
+
+        ValidationResult result = tradeService.validateTradeLegConsistency(legs);
+
+        assertFalse(result.isValid());
+        assertTrue(result.getErrors().contains("Legs must have opposite pay/receive flags"));
+    }
+
+
+
+    @Test
+    @DisplayName("Test trade leg consistency validation - should pass")
+    void testValidateTradeLegConsistency_shouldPass() {
+        TradeLegDTO leg1 = new TradeLegDTO();
+        leg1.setNotional(BigDecimal.valueOf(1000000));
+        leg1.setRate(0.05);
+        leg1.setLegType("Fixed");
+        leg1.setPayReceiveFlag("PAY");  // PAY leg
+        
+        TradeLegDTO leg2 = new TradeLegDTO();
+        leg2.setNotional(BigDecimal.valueOf(1000000));
+        leg2.setRate(0.0);
+        leg2.setLegType("Floating");
+        leg2.setPayReceiveFlag("RECEIVE");  // RECEIVE leg (opposite)
+        leg2.setIndexName("LIBOR"); //Floating leg needs index
+
+        List<TradeLegDTO> legs = List.of(leg1, leg2);
+
+        ValidationResult result = tradeService.validateTradeLegConsistency(legs);
+
+        assertTrue(result.isValid());  // Should pass
+        assertTrue(result.getErrors().isEmpty());
+    }
+
+    @Test
+    @DisplayName("Test to validate trade creation privilege for SUPERUSER. This should pass.")   
+    void testValidateUserPrivileges_SuperUser_ShouldPass() {
+        // Given
+        ApplicationUser user = new ApplicationUser();
+        user.setLoginId("superuser");
+        UserProfile profile = new UserProfile();
+        profile.setUserType("SUPERUSER");
+        user.setUserProfile(profile);
+        lenient().when(applicationUserRepository.findByLoginId("superuser")).thenReturn(Optional.of(user));
+        // When
+        boolean hasPrivileges = tradeService.validateUserPrivileges("superuser", "CREATE_TRADE", tradeDTO);
+
+        // Then
+        assertTrue(hasPrivileges);
+    }
+
+
+
+
+
+    
+    // @Test
+    // @DisplayName("Test to validate trade creation privilege for middle office user. This should fail.")
+    // void testValidateUserPrivileges_middleoffice_ShouldFail() {
+    //     // Reset the spy to remove the global stubbing for this specific test
+    //     reset(tradeService);
+        
+    //     // Given
+    //     ApplicationUser user = new ApplicationUser();
+    //     user.setId(1001L);
+    //     user.setLoginId("middleofficeuser");
+
+    //     UserProfile profile = new UserProfile();
+    //     profile.setId(1001L);
+    //     profile.setUserType("MO");
+    //     user.setUserProfile(profile);
+
+    //     when(applicationUserRepository.findByLoginId("middleofficeuser")).thenReturn(Optional.of(user));
+    //     when(userProfileRepository.findById(1001L)).thenReturn(Optional.of(profile));
+    
+    //     // Mock userPrivilegeRepository to return privileges that do NOT include "BOOK_TRADE"
+    //     UserPrivilege readPrivilege = new UserPrivilege();
+    //     readPrivilege.setPrivilegeId(1002L); // This corresponds to "READ_TRADE"
+
+    //     when(userPrivilegeRepository.findByUserId(1001L)).thenReturn(List.of(readPrivilege));
+
+    //     // Mock privilegeRepository to map that privilege ID to "READ_TRADE"
+    //     Privilege privilege = new Privilege();
+    //     privilege.setId(1002L);
+    //     privilege.setName("READ_TRADE"); // User only has READ_TRADE, not BOOK_TRADE
+
+    //     when(privilegeRepository.findAllById(List.of(1002L))).thenReturn(List.of(privilege));
+
+    //     // When - Check for BOOK_TRADE privilege (which user doesn't have)
+    //     boolean hasPrivileges = tradeService.validateUserPrivileges("middleofficeuser", "BOOK_TRADE", tradeDTO);
+
+    //     // Then - Should be false because user doesn't have BOOK_TRADE privilege
+    //     assertFalse(hasPrivileges);
+    // }
+
 }
