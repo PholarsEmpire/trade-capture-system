@@ -7,8 +7,6 @@ import com.technicalchallenge.dto.TradeSummaryDTO;
 //import com.technicalchallenge.dto.TradeSummaryDTO;
 import com.technicalchallenge.mapper.TradeMapper;
 import com.technicalchallenge.model.Trade;
-import com.technicalchallenge.security.CustomUserDetailsService;
-//import com.technicalchallenge.rsql.RsqlSpecificationBuilder;
 import com.technicalchallenge.service.TradeService;
 import org.springframework.beans.factory.annotation.Autowired;
 //import com.technicalchallenge.validation.ValidationResult;
@@ -16,18 +14,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 //import org.springframework.boot.autoconfigure.data.web.SpringDataWebProperties.Pageable;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
-//import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.method.P;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -395,6 +387,51 @@ public class TradeController {
     public ResponseEntity<DailySummaryDTO> getDailySummary() {
         return ResponseEntity.ok(tradeService.getDailySummary());
     }
+
+
+
+    //FULL STACK SETTLEMEMNT INSTRUCTION IMPLEMENTATION
+
+    // 🔍 Search trades by settlement instructions
+    // This endpoint allows users to search for trades related to specific settlement instructions
+    // It supports partial text search for operations teams and auditors
+    @GetMapping("/search/settlement-instructions")
+    @Operation(summary = "Search trades by settlement instructions",
+            description = "Returns trades whose settlement instructions contain the provided text (case-insensitive).")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Trades found successfully")
+    })
+    public ResponseEntity<List<TradeDTO>> searchBySettlementInstructions(@RequestParam String instructions) {
+        List<TradeDTO> result = tradeService.searchBySettlementInstructions(instructions);
+        return ResponseEntity.ok(result);
+    }
+
+
+    // Update settlement instructions for a trade
+    // This endpoint allows authorized users to add or update settlement instructions for a specific trade
+    @PutMapping("/{id}/settlement-instructions")
+    @Operation(summary = "Update settlement instructions for a trade",
+            description = "Adds or updates settlement instructions for a given trade. Only TRADER, SALES or SUPERUSER  roles can modify.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Settlement instructions updated successfully"),
+            @ApiResponse(responseCode = "400", description = "Invalid settlement instruction data")
+    })
+    public ResponseEntity<?> updateSettlementInstructions(
+            @PathVariable Long id,
+            @RequestBody TradeDTO tradeDTO,
+            @RequestHeader(value = "X-User-Id", required = false) String userId) {
+
+        try {
+            tradeService.updateSettlementInstructions(id, tradeDTO.getSettlementValue());
+            return ResponseEntity.ok("Settlement instructions updated successfully");
+        } catch (Exception e) {
+            logger.error("Error updating settlement instructions: {}", e.getMessage(), e);
+            return ResponseEntity.badRequest().body("Error updating settlement instructions: " + e.getMessage());
+        }
+    }
+
+
+
 
 
 }

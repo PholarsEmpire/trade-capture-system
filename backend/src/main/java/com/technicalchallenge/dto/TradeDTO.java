@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -69,6 +70,12 @@ public class TradeDTO {
     // Trade status
     private Long tradeStatusId;
     private String tradeStatus;
+
+    // FOLA ADDED: Settlement Instructions. I am adding this so that it can be part of TradeDTO and be sent/received in trade APIs
+    @Size(min = 10, max = 500, message = "Settlement instructions must be between 10 and 500 characters if provided")
+    private String settlementValue;
+
+    private String settlementKey;
 
     // Trade legs
     private List<TradeLegDTO> tradeLegs;

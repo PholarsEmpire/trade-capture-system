@@ -19,6 +19,10 @@ public class TradeMapper {
     @Autowired
     private ModelMapper modelMapper;
 
+
+
+    // Method to convert Trade entity to TradeDTO
+    // FOLA updated this method to include settlement instructions
     public TradeDTO toDto(Trade trade) {
         if (trade == null) {
             return null;
