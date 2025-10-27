@@ -14,7 +14,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @Entity
 @Table(name = "additional_info")
-public class AdditionalInfo {
+public class AdditionalInfo { // This class holds dynamic additional fields for various entities
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -49,6 +49,30 @@ public class AdditionalInfo {
 
     @Column(name = "version", nullable = false)
     private Integer version = 1;
+
+
+    // FOLA added: New fields for settlement instructions
+    // I have made both fields non-nullable to ensure data integrity
+    @Column(name = "settlement_key", nullable = false)
+    private String settlementKey;
+
+    @Column(name = "settlement_value", columnDefinition = "Settlement instructions", nullable = false)
+    private String settlementValue;
+
+    // FOLA added: Audit fields to track who created/updated the record
+    @Column(name = "created_by")
+    private String createdBy;
+
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
+
+    @Column(name = "updated_by")
+    private String updatedBy;
+
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+
+    
 
     @PreUpdate
     public void preUpdate() {

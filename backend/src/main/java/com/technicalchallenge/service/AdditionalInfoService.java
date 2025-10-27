@@ -3,10 +3,13 @@ package com.technicalchallenge.service;
 import com.technicalchallenge.dto.AdditionalInfoDTO;
 import com.technicalchallenge.model.AdditionalInfo;
 import com.technicalchallenge.repository.AdditionalInfoRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.modelmapper.ModelMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import com.technicalchallenge.service.AdditionalInfoService;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -14,6 +17,7 @@ import java.util.stream.Collectors;
 
 @Service
 @Transactional
+@Slf4j  // Added this for logging
 public class AdditionalInfoService {
 
     @Autowired
@@ -22,6 +26,9 @@ public class AdditionalInfoService {
     @Autowired
     private ModelMapper modelMapper;
 
+    public static final String SETTLEMENT_INSTRUCTIONS_KEY = "SETTLEMENT_INSTRUCTIONS";
+
+    // Existing methods
     public List<AdditionalInfoDTO> getAdditionalInfoForEntity(String entityType, Long entityId) {
         List<AdditionalInfo> additionalInfoList = additionalInfoRepository.findActiveByEntityTypeAndEntityId(entityType, entityId);
         return additionalInfoList.stream()

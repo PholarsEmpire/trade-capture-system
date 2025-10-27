@@ -4,6 +4,7 @@ import com.technicalchallenge.dto.DailySummaryDTO;
 import com.technicalchallenge.dto.TradeDTO;
 import com.technicalchallenge.dto.TradeLegDTO;
 import com.technicalchallenge.dto.TradeSummaryDTO;
+import com.technicalchallenge.model.AdditionalInfo;
 import com.technicalchallenge.model.ApplicationUser;
 import com.technicalchallenge.model.Book;
 import com.technicalchallenge.model.Cashflow;
@@ -16,6 +17,7 @@ import com.technicalchallenge.model.TradeLeg;
 import com.technicalchallenge.model.TradeStatus;
 import com.technicalchallenge.model.UserPrivilege;
 import com.technicalchallenge.model.UserProfile;
+import com.technicalchallenge.repository.AdditionalInfoRepository;
 import com.technicalchallenge.repository.ApplicationUserRepository;
 import com.technicalchallenge.repository.BookRepository;
 import com.technicalchallenge.repository.CashflowRepository;
@@ -29,22 +31,24 @@ import com.technicalchallenge.repository.TradeRepository;
 import com.technicalchallenge.repository.TradeStatusRepository;
 import com.technicalchallenge.repository.UserPrivilegeRepository;
 import com.technicalchallenge.repository.UserProfileRepository;
+
 import com.technicalchallenge.validation.ValidationResult;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.Mockito;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.domain.Specification;
-import org.springframework.security.core.context.SecurityContextHolder;
+
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -58,10 +62,15 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+
 import com.technicalchallenge.model.Currency;
 import com.technicalchallenge.model.PayRec;
+import com.technicalchallenge.mapper.TradeMapper;
+
 
 
 
@@ -116,6 +125,12 @@ class TradeServiceTest {
 
     @Mock
     private AdditionalInfoService additionalInfoService;
+
+    @Mock
+    private AdditionalInfoRepository additionalInfoRepository;
+
+    @Mock
+    private TradeMapper tradeMapper;
 
     @Spy // This will create a spy for the TradeService. A spy allows us to call real methods unless they are stubbed.
     @InjectMocks
@@ -351,6 +366,154 @@ class TradeServiceTest {
 
 
 
+
+    @Test
+    @DisplayName("Test searchTrades - basic search with all parameters provided. This should pass.")
+    void testSearchTrades_BasicSearch_AllParameters_ShouldPass() {
+        // Given
+        String counterparty = "CounterpartyA";
+        String book = "BookA";
+        Long trader = 101L; // Assuming trader is represented by user ID
+        String status = "NEW";
+        LocalDate from = LocalDate.now().minusDays(30);
+        LocalDate to = LocalDate.of(2025, 12, 31);
+
+        when(tradeRepository.findAll(org.mockito.ArgumentMatchers.<Specification<Trade>>any()))
+            .thenReturn(List.of(trade));
+
+        when(tradeRepository.findAll(org.mockito.ArgumentMatchers.<Specification<Trade>>any()))
+            .thenReturn(List.of());
+
+        // When
+        List<Trade> result = tradeService.searchTrades(counterparty, book, trader, status, from, to);
+
+        // Then
+        assertNotNull(result);
+    }
+
+
+    @Test
+    @DisplayName("Test searchTrades - basic search with partial parameters provided. This should pass.")
+    void testSearchTrades_BasicSearch_PartialParameters_ShouldPass() {
+        // Arrange - only counterparty and status provided
+        String counterparty = "Pholar Counterparty";
+        String book = null;
+        Long trader = null;
+        String status = "TERMINATED";
+        LocalDate from = null;
+        LocalDate to = null;
+
+        when(tradeRepository.findAll(org.mockito.ArgumentMatchers.<Specification<Trade>>any()))
+            .thenReturn(List.of(trade));
+
+        // When
+        List<Trade> result = tradeService.searchTrades(counterparty, book, trader, status, from, to);
+
+        // Then
+        assertNotNull(result);
+    }
+
+
+    @Test
+    @DisplayName("Test searchTrades - basic search with all parameters provided but no results. This should pass.")
+    void testSearchTrades_BasicSearch_NoResults_ShouldPass() {
+        // Arrange - all parameters provided but no matching trades
+        String counterparty = "Pholar Counterparty";
+        String book = "Test Book";
+        Long trader = 201L;
+        String status = "DELETED";
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 12, 31);
+
+        when(tradeRepository.findAll(org.mockito.ArgumentMatchers.<Specification<Trade>>any()))
+            .thenReturn(List.of()); // No results
+
+        // When
+        List<Trade> result = tradeService.searchTrades(counterparty, book, trader, status, from, to);
+
+        // Then
+        assertTrue(result.isEmpty());
+    }
+
+
+      @Test
+    @DisplayName("Test searchTrades - basic search with all null parameters. This should pass.")
+    void testSearchTrades_BasicSearch_AllNullParameters_ShouldPass() {
+        // Arrange - all parameters null, so no value assisgned to any variable
+
+        when(tradeRepository.findAll(org.mockito.ArgumentMatchers.<Specification<Trade>>any()))
+            .thenReturn(List.of()); // No results
+
+        // When
+        List<Trade> result = tradeService.searchTrades(null, null, null, null, null, null);
+
+        // Then
+        assertTrue(result.isEmpty());
+    }
+
+
+    @Test
+    @DisplayName("Test searchTrades - paginated search with sorting")
+    void testSearchTrades_PaginatedSearch_WithSorting() {
+        // Arrange
+        String counterparty = "Goldman Sachs";
+        String book = "FX-BOOK-1";
+        Long trader = 1L;
+        String status = "NEW";
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 12, 31);
+        int page = 0;
+        int size = 10;
+        String sortBy = "tradeDate";
+        String direction = "DESC";
+
+        when(tradeRepository.findAll(org.mockito.ArgumentMatchers.<Specification<Trade>>any(), eq(PageRequest.of(page, size, Sort.by(Sort.Direction.fromString(direction), sortBy)))))
+            .thenReturn(new PageImpl<>(List.of(trade)));
+
+        // When
+        Page<Trade> result = tradeService.searchTrades(counterparty, book, trader, status, from, to, page, size, sortBy, direction);
+
+        // Then
+        assertNotNull(result);
+    }
+
+
+    @Test
+    @DisplayName("Test searchByRsql - date range query")
+    void testSearchByRsql_DateRangeQuery() {
+        // Arrange
+        String query = "tradeDate=ge=2025-01-01;tradeDate=le=2025-12-31";
+        Pageable pageable = PageRequest.of(0, 10);
+        
+        when(tradeRepository.findAll(org.mockito.ArgumentMatchers.<Specification<Trade>>any(), eq(pageable)))
+            .thenReturn(new PageImpl<>(List.of(trade)));
+
+        // When
+        Page<Trade> result = tradeService.searchByRsql(query, pageable);
+        // Then
+        assertNotNull(result);
+
+    }
+
+    @Test
+    @DisplayName("Test searchByRsql - complex query with multiple conditions")
+    void testSearchByRsql_ComplexQuery() {
+        // Arrange
+        String query = "counterparty.name==Goldman;tradeStatus.tradeStatus==NEW;book.bookName==FX-BOOK-1";
+        Pageable pageable = PageRequest.of(0, 20);
+
+        when(tradeRepository.findAll(org.mockito.ArgumentMatchers.<Specification<Trade>>any(), eq(pageable)))
+            .thenReturn(new PageImpl<>(List.of(trade)));
+
+        // When
+        Page<Trade> result = tradeService.searchByRsql(query, pageable);
+
+        // Then
+        assertNotNull(result);
+
+    }
+
+    
     @Test
     @DisplayName("Test RSQL search with invalid query. This test should fail gracefully.")
     void testRsqlSearchInvalidQuery_shouldFail() {
@@ -538,5 +701,234 @@ class TradeServiceTest {
     //     // Then - Should be false because user doesn't have BOOK_TRADE privilege
     //     assertFalse(hasPrivileges);
     // }
+
+
+    @Test
+    @DisplayName("Test getTradesByTrader - returns trades for logged-in user")
+    void testGetTradesByTrader_ReturnsTradesForLoggedInUser() {
+        // Arrange
+        String loggedInUsername = "trader1";
+        
+        // Mock the getLoggedInUsername() method to return our test user
+        // Spy the tradeService to override getLoggedInUsername, so we can simulate logged-in user
+        TradeService spyService = Mockito.spy(tradeService);
+        doReturn(loggedInUsername).when(spyService).getLoggedInUsername();
+        
+        // Create test trades with trader information
+        ApplicationUser trader1 = new ApplicationUser();
+        trader1.setLoginId(loggedInUsername);
+        trader1.setFirstName("Test");
+        trader1.setLastName("Trader");
+        
+        Trade userTrade = new Trade();
+        userTrade.setTradeId(1001L);
+        userTrade.setTraderUser(trader1);
+        userTrade.setActive(true);
+        
+        // ✅ FIX: Use findAll() without arguments
+        when(tradeRepository.findAll()).thenReturn(List.of(userTrade));
+        
+        // Act
+        List<Trade> result = spyService.getTradesByTrader();
+        
+        // Assert
+        assertNotNull(result);
+        assertEquals(1, result.size());
+        assertEquals(loggedInUsername, result.get(0).getTraderUser().getLoginId());
+    }
+
+
+    @Test
+    @DisplayName("Test getTradesByTrader - returns empty list when user has no trades")
+    void testGetTradesByTrader_UserHasNoTrades() {
+        // Arrange
+        String loggedInUsername = "trader3";
+
+        TradeService spyService = Mockito.spy(tradeService);
+        doReturn(loggedInUsername).when(spyService).getLoggedInUsername();
+
+        // Create trades for other users only
+        ApplicationUser otherTrader = new ApplicationUser();
+        otherTrader.setLoginId("other_trader");
+        otherTrader.setFirstName("Other");
+        otherTrader.setLastName("Trader");
+        
+        Trade otherTrade = new Trade();
+        otherTrade.setTradeId(1002L);
+        otherTrade.setTraderUser(otherTrader);
+        otherTrade.setActive(true);
+
+        // ✅ FIX: Use findAll() without arguments
+        when(tradeRepository.findAll()).thenReturn(List.of(otherTrade));
+
+        // Act
+        List<Trade> result = spyService.getTradesByTrader();
+
+        // Assert
+        assertNotNull(result);
+        assertTrue(result.isEmpty());
+    }
+
+
+    @Test
+    @DisplayName("Test getTradeSummary - returns summary with correct totals")
+    void testGetTradeSummary_ReturnsCorrectSummary() {
+        // Arrange
+        Trade trade1 = createTestTradeForSummary("Goldman Sachs", "FX-BOOK-1", "NEW", "FX_SWAP");
+        Trade trade2 = createTestTradeForSummary("JP Morgan", "RATES-BOOK-1", "CONFIRMED", "IRS");
+        Trade trade3 = createTestTradeForSummary("Goldman Sachs", "FX-BOOK-1", "NEW", "FX_SWAP");
+        
+        // ✅ FIX: Use findAll() without arguments
+        when(tradeRepository.findAll()).thenReturn(List.of(trade1, trade2, trade3));
+        
+        // Act
+        TradeSummaryDTO result = tradeService.getTradeSummary();
+        
+        // Assert
+        assertNotNull(result);
+        assertEquals(3L, result.getTotalTrades());
+        
+        // Check trades by status
+        assertEquals(2L, result.getTradesByStatus().get("NEW"));
+        assertEquals(1L, result.getTradesByStatus().get("CONFIRMED"));
+        
+        // Check trades by counterparty
+        assertEquals(2L, result.getTradesByCounterparty().get("Goldman Sachs"));
+        assertEquals(1L, result.getTradesByCounterparty().get("JP Morgan"));
+        
+        verify(tradeRepository).findAll();
+    }
+
+
+    @Test
+    @DisplayName("Test cashflow calculation - Bug Fix Verification, this should pass now")
+    void testCalculateCashflowValue_FixedLeg_BugFixed_ShouldPass() {
+        // Arrange: $10M notional, 3.5% rate, quarterly (3 months)
+        TradeLeg fixedLeg = new TradeLeg();
+        fixedLeg.setNotional(new BigDecimal("10000000.00"));  // $10M
+        fixedLeg.setRate(3.5);  // 3.5% stored as percentage
+        
+        LegType legType = new LegType();
+        legType.setType("Fixed");
+        fixedLeg.setLegRateType(legType);
+        
+        // Act: Calculate quarterly cashflow (3 months)
+        BigDecimal result = tradeService.calculateCashflowValue(fixedLeg, 3);
+        
+        // Assert: Should be $87,500 (not $8,750,000)
+        BigDecimal expected = new BigDecimal("87500.00");
+        assertEquals(0, expected.compareTo(result), 
+            "Expected $87,500 but got $" + result + " - Bug not fixed!");
+    }
+
+
+     @Test
+    @DisplayName("Test cashflow calculation - Bug Fix Verification, this should pass returning zero for floating leg with zero rate")
+    void testCalculateCashflowValue_FloatingLeg_BugFixed_ShouldPass() {
+        // Arrange: $20M notional, quarterly (6 months)
+        TradeLeg floatingLeg = new TradeLeg();
+        floatingLeg.setNotional(new BigDecimal("20000000.00"));  // $20M
+        // Rate is zero for floating leg in this test. Floating legs have an index rate, so we simulate zero rate here.
+        
+        LegType legType = new LegType();
+        legType.setType("Floating");
+        floatingLeg.setLegRateType(legType);
+
+        // Act: Calculate semi-annual cashflow (6 months)
+        BigDecimal result = tradeService.calculateCashflowValue(floatingLeg, 6);
+
+        // Assert: Should be 0 since rate is zero
+        BigDecimal expected = BigDecimal.ZERO;
+        assertEquals(0, expected.compareTo(result),
+            "Expected $0 but got $" + result + " - Bug not fixed!");
+    }
+
+
+
+    @Test
+    @DisplayName("Test cashflow calculation - Edge cases- when notional is zero")
+    void testCalculateCashflowValue_EdgeCases_WhenNotionalIsZero() {
+        // Arrange: Create trade leg with zero notional
+        TradeLeg legWithZeroNotional = new TradeLeg();
+        legWithZeroNotional.setNotional(BigDecimal.ZERO);
+        legWithZeroNotional.setRate(3.5);
+        
+        LegType legType = new LegType();
+        legType.setType("Fixed");
+        legWithZeroNotional.setLegRateType(legType);
+
+        // Act: Calculate cashflow
+        BigDecimal result = tradeService.calculateCashflowValue(legWithZeroNotional, 3);
+
+        // Assert: Should be zero cashflow
+        assertEquals(0, result.compareTo(BigDecimal.ZERO), "Expected zero cashflow for zero notional");
+    }
+
+
+    // This tests for when rate is zero 
+    @Test
+    @DisplayName("Test cashflow calculation - Edge cases- when rate is zero")
+    void testCalculateCashflowValue_EdgeCases_WhenRateIsZero() {
+        // Arrange: Create trade leg with zero rate
+        TradeLeg legWithZeroRate = new TradeLeg();
+        legWithZeroRate.setNotional(new BigDecimal(2000000));
+        legWithZeroRate.setRate(0.0);
+        
+        LegType legType = new LegType();
+        legType.setType("Fixed");
+        legWithZeroRate.setLegRateType(legType);
+
+        // Act: Calculate cashflow
+        BigDecimal result = tradeService.calculateCashflowValue(legWithZeroRate, 3);
+
+        // Assert: Should be zero cashflow
+        assertEquals(0, result.compareTo(BigDecimal.ZERO), "Expected zero cashflow for zero rate");
+    }
+
+
+    // Add this helper method to your test class
+    private Trade createTestTradeForSummary(String counterpartyName, String bookName, String status, String tradeType) {
+        Trade trade = new Trade();
+        trade.setTradeDate(LocalDate.now());
+        trade.setActive(true);
+        
+        // Set counterparty
+        Counterparty counterparty = new Counterparty();
+        counterparty.setName(counterpartyName);
+        trade.setCounterparty(counterparty);
+        
+        // Set book
+        Book book = new Book();
+        book.setBookName(bookName);
+        trade.setBook(book);
+        
+        // Set status
+        TradeStatus tradeStatus = new TradeStatus();
+        tradeStatus.setTradeStatus(status);
+        trade.setTradeStatus(tradeStatus);
+        
+        // Set trade type (if you have this entity)
+        // TradeType type = new TradeType();
+        // type.setTradeType(tradeType);
+        // trade.setTradeType(type);
+        
+        // Add trade legs to avoid null pointer exceptions
+        TradeLeg leg1 = new TradeLeg();
+        leg1.setNotional(BigDecimal.valueOf(500000));
+        
+        // Add currency
+        Currency usd = new Currency();
+        usd.setCurrency("USD");
+        leg1.setCurrency(usd);
+        
+        // Add pay/receive flag
+        PayRec payRec = new PayRec();
+        payRec.setPayRec("PAY");
+        leg1.setPayReceiveFlag(payRec);
+        
+        trade.setTradeLegs(List.of(leg1));
+        
+        return trade;
+    }
 
 }

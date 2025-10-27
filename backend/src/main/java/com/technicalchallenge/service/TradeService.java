@@ -4,6 +4,7 @@ import com.technicalchallenge.dto.DailySummaryDTO;
 import com.technicalchallenge.dto.TradeDTO;
 import com.technicalchallenge.dto.TradeLegDTO;
 import com.technicalchallenge.dto.TradeSummaryDTO;
+import com.technicalchallenge.mapper.TradeMapper;
 import com.technicalchallenge.model.*;
 import com.technicalchallenge.repository.*;
 import com.technicalchallenge.specifications.TradeSpecifications;
@@ -31,11 +32,11 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.AbstractMap;
 import java.util.ArrayList;
-//import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -52,6 +53,8 @@ public class TradeService {
     private TradeRepository tradeRepository;
     @Autowired
     private TradeLegRepository tradeLegRepository;
+    @Autowired
+    private TradeMapper tradeMapper;
     @Autowired
     private CashflowRepository cashflowRepository;
     @Autowired
@@ -83,6 +86,8 @@ public class TradeService {
     @Autowired
     private AdditionalInfoService additionalInfoService;
     @Autowired
+    private AdditionalInfoRepository additionalInfoRepository;
+    @Autowired
     private UserPrivilegeRepository userPrivilegeRepository;
     @Autowired
     private UserProfileRepository userProfileRepository;
@@ -90,10 +95,14 @@ public class TradeService {
     private PrivilegeRepository privilegeRepository;
    
    
+   
 
 
     // NEW METHOD: Get logged-in username automatically for authenticated actions
-    private String getLoggedInUsername() {
+    // This avoids passing username from controller, reducing risk of spoofing
+    // It retrieves the username from Spring Security context
+    // The visibility is package-private for testing purposes
+    String getLoggedInUsername() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         return (auth != null) ? auth.getName() : null;
     }
@@ -116,7 +125,7 @@ public class TradeService {
         //validate user privileges before creating trade
         String loginId= getLoggedInUsername();
         if (!validateUserPrivileges(loginId, "BOOK_TRADE", tradeDTO)) {
-            throw new AccessDeniedException("User does not have privilege to create trade");
+            throw new AccessDeniedException("User does not have privilege to create or book a trade");
         }
 
         logger.info("Creating new trade with ID: {}", tradeDTO.getTradeId());
@@ -127,6 +136,11 @@ public class TradeService {
             Long generatedTradeId = generateNextTradeId();
             tradeDTO.setTradeId(generatedTradeId);
             logger.info("Generated trade ID: {}", generatedTradeId);
+        }
+
+         // Validate settlement instructions if provided
+        if (tradeDTO.getSettlementKey() != null) {
+            validateSettlementInstructions(tradeDTO.getSettlementKey());
         }
 
         // Validate business rules
@@ -162,6 +176,20 @@ public class TradeService {
 
         // Create trade legs and cashflows
         createTradeLegsWithCashflows(tradeDTO, savedTrade);
+
+         // Save settlement instructions if provided
+        if (tradeDTO.getSettlementKey() != null && 
+            !tradeDTO.getSettlementKey().trim().isEmpty()) {
+            // Persist settlement instructions directly via repository since the service method is not defined
+            AdditionalInfo info = new AdditionalInfo();
+            info.setEntityType("TRADE");
+            info.setEntityId(savedTrade.getTradeId());
+            info.setSettlementKey("SETTLEMENT_INSTRUCTIONS");
+            info.setSettlementValue(tradeDTO.getSettlementKey());
+            info.setCreatedBy(getLoggedInUsername());
+            info.setCreatedAt(LocalDateTime.now());
+            additionalInfoRepository.save(info);
+        }
 
         logger.info("Successfully created trade with ID: {}", savedTrade.getTradeId());
         return savedTrade;
@@ -453,6 +481,30 @@ public class TradeService {
         return trade;
     }
 
+    // Validate settlement instructions content before persisting or saving via AdditionalInfoService
+    private void validateSettlementInstructions(String settlementKey) {
+        if (settlementKey == null || settlementKey.trim().isEmpty()) {
+            throw new RuntimeException("Settlement instructions cannot be empty");
+        }
+
+        String trimmed = settlementKey.trim();
+
+        // enforce reasonable length limits
+        if (trimmed.length() < 10) {
+            throw new RuntimeException("Settlement instructions must be at least 10 characters");
+        }
+        if (trimmed.length() > 1000) {
+            throw new RuntimeException("Settlement instructions must not exceed 1000 characters");
+        }
+
+        // simple safety checks to avoid HTML/script injections or binary garbage
+        if (trimmed.contains("<") || trimmed.contains(">") || trimmed.contains("\0")) {
+            throw new RuntimeException("Settlement instructions contain invalid characters");
+        }
+
+        logger.debug("Settlement instructions validated (length: {})", trimmed.length());
+    }
+
     private void createTradeLegsWithCashflows(TradeDTO tradeDTO, Trade savedTrade) {
         for (int i = 0; i < tradeDTO.getTradeLegs().size(); i++) {
             var legDTO = tradeDTO.getTradeLegs().get(i);
@@ -631,22 +683,32 @@ public class TradeService {
         return dates;
     }
 
-    private BigDecimal calculateCashflowValue(TradeLeg leg, int monthsInterval) {
-        if (leg.getLegRateType() == null) {
+    // FIXED: Calculate cashflow value based on leg type
+    // NOTE: I changed the visibility to package-private from private for testing purposes
+    // This still maintains encapsulation within the service package and not exposed publicly, so external clients cannot access it.
+    BigDecimal calculateCashflowValue(TradeLeg leg, int monthsInterval) {
+        if (leg.getLegRateType() == null || leg.getNotional() == null) {
             return BigDecimal.ZERO;
         }
 
         String legType = leg.getLegRateType().getType();
 
         if ("Fixed".equals(legType)) {
-            double notional = leg.getNotional().doubleValue();
-            double rate = leg.getRate();
-            double months = monthsInterval;
+            BigDecimal notional = leg.getNotional();
 
-            double result = (notional * rate * months) / 12;
+            // Bug fix 1: convert the percentage rate to decimal
+            BigDecimal ratePercentage = BigDecimal.valueOf(leg.getRate());
+            BigDecimal rate = ratePercentage.divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_UP); //scale of 6 for precision. Scale means number of digits after decimal point.
 
-            return BigDecimal.valueOf(result);
+
+            BigDecimal months = BigDecimal.valueOf(monthsInterval); 
+
+
+            // Bug fix 2: Use proper decimal rate in calculation
+            return notional.multiply(rate).multiply(months).divide(BigDecimal.valueOf(12), 2, RoundingMode.HALF_UP);
+
         } else if ("Floating".equals(legType)) {
+            // For floating legs, there is no rate fixed in advance, so we return zero here. In real scenarios, this would be based on index rates at fixing dates.
             return BigDecimal.ZERO;
         }
 
@@ -681,7 +743,7 @@ public class TradeService {
     //FOLA ADDED: NEW METHOD FOR DYNAMIC SEARCH AND FILTERING USING SPECIFICATIONS
     public List<Trade> searchTrades(String counterparty,
                                 String book,
-                                Long trader,
+                                Long trader, // trader is Long type representing trader user ID since its a unique identifier
                                 String status,
                                 LocalDate from,
                                 LocalDate to) {
@@ -693,7 +755,7 @@ public class TradeService {
                 .and(TradeSpecifications.hasStatus(status))
                 .and(TradeSpecifications.dateBetween(from, to));
 
-        return tradeRepository.findAll(spec);
+        return tradeRepository.findAll(spec); // Fetch all trades matching the specification
     }
 
 
@@ -704,10 +766,10 @@ public class TradeService {
                                     String status,
                                     LocalDate from,
                                     LocalDate to,
-                                    int page,
-                                    int size,
-                                    String sortBy,
-                                    String direction) {
+                                    int page, // zero-based page index. This specifies which page of results to retrieve.
+                                    int size, // page size i.e number of records per page
+                                    String sortBy, // field to sort by
+                                    String direction) { // sort direction (ASC or DESC)
 
         Specification<Trade> spec = Specification
                 .where(TradeSpecifications.hasCounterparty(counterparty))
@@ -862,79 +924,6 @@ public class TradeService {
 
     //LOGIC:Takes a user’s loginId and an actionName (e.g., "READ_TRADE")
     //Confirms that the user’s profile and privileges allow that action.
-    
-    // public boolean validateUserPrivileges(String userId, String operation, TradeDTO tradeDTO) {
-    //     if (userId == null || operation == null) {
-    //         logger.warn("LoginId or privilege is null");
-    //         return false;
-    //     }
-
-    //     // Normalize operation to upper case to match the database values
-    //     operation = operation.toUpperCase();
-
-    //     // Retrieve the user from applicationUser database table using user loginId
-    //     var user = applicationUserRepository.findByLoginId(userId).orElse(null);
-    //     // If user not found or inactive, deny access
-    //     if (user == null || !user.isActive()){
-    //         logger.warn("User not found or user inactive: {}", userId);
-    //         return false;
-    //     }
-
-    //     //Get the user profile and ID
-    //     Long userProfileId = user.getUserProfile().getId();
-    //     Long userID = user.getId();
-
-    //     //Load the user profile
-    //     var userProfile = userProfileRepository.findById(userProfileId).orElse(null);
-    //     if (userProfile == null) {
-    //         logger.warn("User {} does not have a profile assigned: ", userId);
-    //         return false;
-    //     }
-
-    //     //If user is SUPERUSER, grant all privileges
-    //     // I am adding this explicitly as the SUPERUSER role should have unrestricted access
-    //     // and the privilege table does not have an entry for every possible operation
-    //     String userType = userProfile.getUserType().toUpperCase();
-    //     if (userType.equals("SUPERUSER")) return true;
-
-    //     // If user is a TRADER_SALES, grant specific privileges directly
-    //     // Again I am adding this explicitly as the privilege table did to assign all possible privileges to this role (looking at the current data in the privilege table)
-    //     if (userType.equals("TRADER_SALES")) {
-    //         List<String> traderPrivileges = List.of("BOOK_TRADE", "AMEND_TRADE", "READ_TRADE");
-    //         if (traderPrivileges.contains(operation)) return true;
-    //     }
-
-    //     // If user is MIDDLE_OFFICE, grant specific privileges directly
-    //     if (userType.equals("MO")) {
-    //         List<String> moPrivileges = List.of("READ_TRADE", "AMEND_TRADE");
-    //         if (moPrivileges.contains(operation)) return true;
-    //     }
-
-    //     //Retrieve privileges for other user types from user_privilege table
-    //     List<UserPrivilege> userPrivileges = userPrivilegeRepository.findByUserId(userID);
-
-    //     // For other user types, check privileges from the user_privilege table
-    //     // Retrieve all privileges associated with the user profile
-    //     if (userPrivileges == null || userPrivileges.isEmpty()) {
-    //         logger.warn("User {} does not have any privileges assigned: ", userId);
-    //         return false;
-    //     }
-
-    //     //map privilege IDs to the privilege names in the privilege table
-    //     // A user can have multiple privileges, so we collect all privilege names into a list
-    //     List<Long> privilegeIds = userPrivileges.stream()
-    //             .map(UserPrivilege::getPrivilegeId)
-    //             .toList();
-
-    //     List<String> privilegeNames = privilegeRepository.findAllById(privilegeIds).stream()
-    //                 .map(Privilege::getName)
-    //                 .map(String::toUpperCase)
-    //                 .toList();
-
-    //     //check if the requested operation exists in the users's prilivilege list
-    //     return privilegeNames.contains(operation);
-    // }
-
 
     public boolean validateUserPrivileges(String userId, String operation, TradeDTO tradeDTO) {
         if (userId == null || operation == null) {
@@ -945,14 +934,14 @@ public class TradeService {
         // Normalize operation name
         operation = operation.toUpperCase();
 
-        // 1️⃣ Retrieve user record
+        // Retrieve user record
         var user = applicationUserRepository.findByLoginId(userId).orElse(null);
         if (user == null || !user.isActive()) {
             logger.warn("User not found or inactive: {}", userId);
             return false;
         }
 
-        // 2️⃣ Retrieve user profile (role)
+        // Retrieve user profile (role)
         var userProfile = userProfileRepository.findById(user.getUserProfile().getId()).orElse(null);
         if (userProfile == null) {
             logger.warn("User {} does not have a profile assigned", userId);
@@ -961,31 +950,31 @@ public class TradeService {
 
         String userType = userProfile.getUserType().toUpperCase();
 
-        // 3️⃣ SUPERUSER: always allowed to perform any operation
+        // SUPERUSER: always allowed to perform any operation
         if (userType.equals("SUPERUSER")) {
             logger.info("SUPERUSER detected - full access granted for {}", userId);
             return true;
         }
 
-        // 4️⃣ Get all privileges assigned to this user from user_privilege
+        // Get all privileges assigned to this user from user_privilege
         List<UserPrivilege> userPrivileges = userPrivilegeRepository.findByUserId(user.getId());
         if (userPrivileges == null || userPrivileges.isEmpty()) {
             logger.warn("User {} has no privileges assigned", userId);
             return false;
         }
 
-        // 5️⃣ Extract privilege IDs
+        // Extract privilege IDs
         List<Long> privilegeIds = userPrivileges.stream()
                 .map(UserPrivilege::getPrivilegeId)
                 .toList();
 
-        // 6️⃣ Retrieve privilege names from the privilege table
+        // Retrieve privilege names from the privilege table
         List<String> privilegeNames = privilegeRepository.findAllById(privilegeIds).stream()
                 .map(Privilege::getName)
                 .map(String::toUpperCase)
                 .toList();
 
-        // 7️⃣ Check if operation exists in user's privileges
+        // Check if operation exists in user's privileges
         boolean hasPrivilege = privilegeNames.contains(operation);
 
         logger.info("User {} of type {} requesting operation {} -> {}", userId, userType, operation, hasPrivilege);
@@ -993,8 +982,6 @@ public class TradeService {
     }
 
 
-
-   
 
     // FOLA ADDED: New method to get trades analytics by trader ID
     public List<Trade> getTradesByTrader() {
@@ -1428,5 +1415,80 @@ public class TradeService {
                 .build();
     }
 
+
+    // FOLA ADDED: New method to update settlement instructions for a trade
+    // This method either updates existing settlement instructions or creates new ones if they don't exist
+    @Transactional
+    public void updateSettlementInstructions(Long tradeId, String settlementValue) {
+        
+        String userId = getLoggedInUsername(); //Ensure we capture who made the update for audit trail
+        logger.info("Updating settlement instructions for trade {}", tradeId);
+
+        // ✅ Validate input
+        if (settlementValue == null || settlementValue.trim().isEmpty()) {
+            throw new RuntimeException("Settlement instructions cannot be empty");
+        }
+        if (settlementValue.length() < 10 || settlementValue.length() > 500) {
+            throw new RuntimeException("Settlement instructions must be between 10 and 500 characters");
+        }
+
+        // ✅ Find existing record
+        Optional<AdditionalInfo> existingInfoOpt =
+                additionalInfoRepository.findByEntityTypeAndEntityIdAndSettlementKey("TRADE", tradeId, "SETTLEMENT_INSTRUCTIONS");
+
+        AdditionalInfo info;
+        if (existingInfoOpt.isPresent()) {
+            // Update existing record
+            info = existingInfoOpt.get();
+            info.setSettlementValue(settlementValue);
+            info.setUpdatedBy(userId);
+            info.setUpdatedAt(LocalDateTime.now());
+            logger.info("Updated existing settlement instructions for trade {}", tradeId);
+        } else {
+            // Create new record
+            info = new AdditionalInfo();
+            info.setEntityType("TRADE");
+            info.setEntityId(tradeId);
+            info.setSettlementKey("SETTLEMENT_INSTRUCTIONS");
+            info.setSettlementValue(settlementValue);
+            info.setCreatedBy(userId);
+            info.setCreatedAt(LocalDateTime.now());
+            logger.info("Created new settlement instructions for trade {}", tradeId);
+        }
+
+        additionalInfoRepository.save(info);
+    }
+
+    // FOLA ADDED: New method to search trades by settlement instructions content (partial match)
+    public List<TradeDTO> searchBySettlementInstructions(String searchText) {
+        logger.info("Searching for trades with settlement instructions containing '{}'", searchText);
+
+        List<AdditionalInfo> infos = additionalInfoRepository.searchSettlementInstructions(searchText);
+
+        // Collect unique trade IDs
+        List<Long> tradeIds = infos.stream()
+                .map(AdditionalInfo::getEntityId)
+                .distinct()
+                .toList();
+
+        // Retrieve those trades
+        List<Trade> trades = tradeRepository.findAllById(tradeIds);
+
+        // Convert to DTOs
+        List<TradeDTO> result = trades.stream().map(tradeMapper::toDto).toList();
+
+        // Optionally attach settlement info to DTOs
+        result.forEach(dto -> {
+            infos.stream()
+                    .filter(ai -> ai.getEntityId().equals(dto.getTradeId()))
+                    .findFirst()
+                    .ifPresent(ai -> dto.setSettlementValue(ai.getSettlementValue()));
+        });
+
+        return result;
+    }
+
+
+  
 
 }

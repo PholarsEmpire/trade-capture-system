@@ -13,6 +13,8 @@ import java.time.LocalDate;
 // Specifications can be combined using the `and` and `or` methods provided by the Specification interface.
 // Example usage in service layer:
 // Specification<Trade> spec = Specification.where(TradeSpecifications.hasCounterparty(counterpartyName))
+
+// In real life scenarios, this is seen when searching for laptop on e-commerce sites where multiple optional filters (the laptop specifications) can be applied.
 public class TradeSpecifications {
 
     // Counterparty name filter (e.g. "MegaFund", "BigBank")
@@ -48,7 +50,7 @@ public class TradeSpecifications {
         };
     }
 
-    // Date range filter for tradeDate (date agreement was made, not the start date or date of execution)
+    // Date range filter for tradeDate (the date agreement was made, not the date of execution)
     // If both from and to are provided, filter between them
     // If only from is provided, filter from that date onwards
     // If only to is provided, filter up to that date
