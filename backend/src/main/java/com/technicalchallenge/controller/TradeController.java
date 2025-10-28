@@ -1,6 +1,7 @@
 package com.technicalchallenge.controller;
 
 import com.technicalchallenge.dto.DailySummaryDTO;
+import com.technicalchallenge.dto.SettlementInstructionsUpdateDTO;
 //import com.technicalchallenge.dto.DailySummaryDTO;
 import com.technicalchallenge.dto.TradeDTO;
 import com.technicalchallenge.dto.TradeSummaryDTO;
@@ -8,6 +9,7 @@ import com.technicalchallenge.dto.TradeSummaryDTO;
 import com.technicalchallenge.mapper.TradeMapper;
 import com.technicalchallenge.model.Trade;
 import com.technicalchallenge.service.TradeService;
+import com.technicalchallenge.service.AdditionalInfoService;
 import org.springframework.beans.factory.annotation.Autowired;
 //import com.technicalchallenge.validation.ValidationResult;
 
@@ -48,11 +50,13 @@ import org.slf4j.LoggerFactory;
 @Tag(name = "Trades", description = "Trade management operations including booking, searching, and lifecycle management")
 public class TradeController {
     private static final Logger logger = LoggerFactory.getLogger(TradeController.class);
-
     @Autowired
     private TradeService tradeService;
     @Autowired
     private TradeMapper tradeMapper;
+    @Autowired
+    private AdditionalInfoService additionalInfoService;
+  
    
 
     @GetMapping
@@ -66,10 +70,23 @@ public class TradeController {
     })
     public List<TradeDTO> getAllTrades() {
         logger.info("Fetching all trades");
+        // return tradeService.getAllTrades().stream()
+        //         .map(tradeMapper::toDto)
+        //         .toList();
         return tradeService.getAllTrades().stream()
-                .map(tradeMapper::toDto)
-                .toList();
+        .map(trade -> {
+            TradeDTO dto = tradeMapper.toDto(trade);
+
+            // Include settlement instructions if present
+            additionalInfoService.getSettlementInstructions(trade.getTradeId())
+                .ifPresent(dto::setSettlementInstructions);
+
+            return dto;
+        })
+        .toList();
     }
+
+
 
     @GetMapping("/{id}")
     @Operation(summary = "Get trade by ID",
@@ -85,10 +102,21 @@ public class TradeController {
             @Parameter(description = "Unique identifier of the trade", required = true)
             @PathVariable(name = "id") Long id) {
         logger.debug("Fetching trade by id: {}", id);
+        // return tradeService.getTradeById(id)
+        //         .map(tradeMapper::toDto)
+        //         .map(ResponseEntity::ok)
+        //         .orElse(ResponseEntity.notFound().build());
         return tradeService.getTradeById(id)
-                .map(tradeMapper::toDto)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+        .map(trade -> {
+            TradeDTO dto = tradeMapper.toDto(trade);
+
+            //  Add settlement instructions from AdditionalInfo
+            additionalInfoService.getSettlementInstructions(trade.getTradeId())
+                .ifPresent(dto::setSettlementInstructions);
+
+            return ResponseEntity.ok(dto);
+        })
+        .orElse(ResponseEntity.notFound().build());
     }
 
     @PostMapping
@@ -396,14 +424,18 @@ public class TradeController {
     // This endpoint allows users to search for trades related to specific settlement instructions
     // It supports partial text search for operations teams and auditors
     @GetMapping("/search/settlement-instructions")
-    @Operation(summary = "Search trades by settlement instructions",
+    @Operation(summary = "Search trades by settlement instructions phrase or text",
             description = "Returns trades whose settlement instructions contain the provided text (case-insensitive).")
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Trades found successfully")
+            @ApiResponse(responseCode = "200", description = "Trades found successfully"),
+            @ApiResponse(responseCode = "400", description = "Invalid settlement instruction parameter"),
+            @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     public ResponseEntity<List<TradeDTO>> searchBySettlementInstructions(@RequestParam String instructions) {
-        List<TradeDTO> result = tradeService.searchBySettlementInstructions(instructions);
+        List<Trade> trades = tradeService.searchBySettlementInstructions(instructions);
+        List<TradeDTO> result = trades.stream().map(tradeMapper::toDto).toList();
         return ResponseEntity.ok(result);
+
     }
 
 
@@ -414,15 +446,16 @@ public class TradeController {
             description = "Adds or updates settlement instructions for a given trade. Only TRADER, SALES or SUPERUSER  roles can modify.")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Settlement instructions updated successfully"),
-            @ApiResponse(responseCode = "400", description = "Invalid settlement instruction data")
+            @ApiResponse(responseCode = "400", description = "Invalid settlement instruction data or trade not found"),
+            @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     public ResponseEntity<?> updateSettlementInstructions(
             @PathVariable Long id,
-            @RequestBody TradeDTO tradeDTO,
+            @RequestBody SettlementInstructionsUpdateDTO request,
             @RequestHeader(value = "X-User-Id", required = false) String userId) {
 
         try {
-            tradeService.updateSettlementInstructions(id, tradeDTO.getSettlementValue());
+            tradeService.updateSettlementInstructions(id, request.getInstructions());
             return ResponseEntity.ok("Settlement instructions updated successfully");
         } catch (Exception e) {
             logger.error("Error updating settlement instructions: {}", e.getMessage(), e);

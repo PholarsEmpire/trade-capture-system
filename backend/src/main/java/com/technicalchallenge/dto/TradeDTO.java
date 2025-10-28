@@ -2,9 +2,7 @@ package com.technicalchallenge.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -71,15 +69,17 @@ public class TradeDTO {
     private Long tradeStatusId;
     private String tradeStatus;
 
-    // FOLA ADDED: Settlement Instructions. I am adding this so that it can be part of TradeDTO and be sent/received in trade APIs
-    @Size(min = 10, max = 500, message = "Settlement instructions must be between 10 and 500 characters if provided")
-    private String settlementValue;
-
-    private String settlementKey;
-
     // Trade legs
     private List<TradeLegDTO> tradeLegs;
 
     // Additional fields for extensibility
     private List<AdditionalInfoDTO> additionalFields;
+
+    /**
+     * This is needed to hold settlement instructions and so that
+     * the frontend can send and receive this data easily.
+     * The backend receives, validates and passes it to AdditionalInfoService for processing.
+     * It's just for data transfer and does not map directly to a Trade entity field.
+     */
+    private String settlementInstructions;
 }

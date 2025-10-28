@@ -15,6 +15,7 @@ import com.technicalchallenge.service.TradeService;
 import io.swagger.v3.oas.annotations.Operation;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -46,13 +47,9 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-import org.springframework.security.test.context.support.WithMockUser;
-
-
-
 @ExtendWith(SpringExtension.class)
-@WebMvcTest(TradeController.class)
-@AutoConfigureMockMvc(addFilters = false) // ✅ Disable Spring Security filters
+@WebMvcTest(controllers = TradeController.class)
+@AutoConfigureMockMvc(addFilters = false)
 @WithMockUser(username = "simon", roles = "TRADER")
 public class TradeControllerTest {
 
@@ -66,68 +63,73 @@ public class TradeControllerTest {
     private TradeMapper tradeMapper;
 
     @MockBean
-    private Authentication authentication;
-
-    @MockBean
     private ApplicationUserRepository applicationUserRepository;
-
-    @InjectMocks
-    private CustomUserDetailsService customUserDetailsService;
+    
+    @MockBean
+    private com.technicalchallenge.service.AdditionalInfoService additionalInfoService;
+    
+    @MockBean
+    private com.technicalchallenge.repository.TradeRepository tradeRepository;
+    
+    @MockBean
+    private com.technicalchallenge.repository.TradeLegRepository tradeLegRepository;
+    
+    @MockBean
+    private com.technicalchallenge.repository.BookRepository bookRepository;
+    
+    @MockBean
+    private com.technicalchallenge.repository.CounterpartyRepository counterpartyRepository;
+    
+    @MockBean
+    private com.technicalchallenge.repository.AdditionalInfoRepository additionalInfoRepository;
+    
+    @MockBean
+    private com.technicalchallenge.mapper.TradeLegMapper tradeLegMapper;
 
     private ObjectMapper objectMapper;
 
     private TradeDTO tradeDTO;
     private Trade trade;
 
+    private Authentication authentication;
+
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper();
         objectMapper.registerModule(new JavaTimeModule());
 
-        // Create a sample TradeDTO for testing
+        // Initialize Trade entity
+        trade = new Trade();
+        trade.setTradeId(1001L);
+        trade.setVersion(1);
+        trade.setTradeDate(LocalDate.now());
+        trade.setTradeStartDate(LocalDate.now().plusDays(2));
+        trade.setTradeMaturityDate(LocalDate.now().plusYears(5));
+
+        // Initialize TradeDTO
         tradeDTO = new TradeDTO();
         tradeDTO.setTradeId(1001L);
         tradeDTO.setVersion(1);
-        tradeDTO.setTradeDate(LocalDate.now()); // Fixed: LocalDate instead of LocalDateTime
-        tradeDTO.setTradeStartDate(LocalDate.now().plusDays(2)); // Fixed: correct method name
-        tradeDTO.setTradeMaturityDate(LocalDate.now().plusYears(5)); // Fixed: correct method name
+        tradeDTO.setTradeDate(LocalDate.now());
+        tradeDTO.setTradeStartDate(LocalDate.now().plusDays(2));
+        tradeDTO.setTradeMaturityDate(LocalDate.now().plusYears(5));
         tradeDTO.setTradeStatus("LIVE");
         tradeDTO.setBookName("TestBook");
         tradeDTO.setCounterpartyName("TestCounterparty");
         tradeDTO.setTraderUserName("TestTrader");
         tradeDTO.setInputterUserName("TestInputter");
-        tradeDTO.setUtiCode("UTI123456789");
 
-        // Create a sample Trade entity for testing
-        trade = new Trade();
-        trade.setId(1L);
-        trade.setTradeId(1001L);
-        trade.setVersion(1);
-        trade.setTradeDate(LocalDate.now()); // Fixed: LocalDate instead of LocalDateTime
-        trade.setTradeStartDate(LocalDate.now().plusDays(2)); // Fixed: correct method name
-        trade.setTradeMaturityDate(LocalDate.now().plusYears(5)); // Fixed: correct method name
-
-        // Set up default mappings
-        when(tradeMapper.toDto(any(Trade.class))).thenReturn(tradeDTO);
-        when(tradeMapper.toEntity(any(TradeDTO.class))).thenReturn(trade);
-
-
-        // FOLA ADDED: Mock application user repository to return a valid user
-        MockitoAnnotations.openMocks(this);
-        ApplicationUser user = new ApplicationUser();
-        user.setLoginId("simon");
-        user.setPassword("password");
-        user.setActive(true);
-        when(applicationUserRepository.findByLoginId("simon"))
-            .thenReturn(Optional.of(user));
+        authentication = org.mockito.Mockito.mock(Authentication.class);
+        org.mockito.Mockito.when(authentication.getName()).thenReturn("simon");
     }
 
     @Test
     void testGetAllTrades() throws Exception {
         // Given
-        List<Trade> trades = List.of(trade); // Fixed: use List.of instead of Arrays.asList for single item
+        List<Trade> trades = List.of(trade);
 
         when(tradeService.getAllTrades()).thenReturn(trades);
+        when(tradeMapper.toDto(trade)).thenReturn(tradeDTO);
 
         // When/Then
         mockMvc.perform(get("/api/trades")
@@ -145,6 +147,7 @@ public class TradeControllerTest {
     void testGetTradeById() throws Exception {
         // Given
         when(tradeService.getTradeById(1001L)).thenReturn(Optional.of(trade));
+        when(tradeMapper.toDto(trade)).thenReturn(tradeDTO);
 
         // When/Then
         mockMvc.perform(get("/api/trades/1001")
@@ -171,11 +174,12 @@ public class TradeControllerTest {
     }
 
     @Test
-    //@WithMockUser(username = "simon", roles = {"TRADER_SALES"})
     void testCreateTrade() throws Exception {
         // Given
         when(authentication.getName()).thenReturn("simon"); //returns simon as the logged-in user
+        when(tradeMapper.toEntity(any(TradeDTO.class))).thenReturn(trade); // ADD: Mock toEntity conversion
         when(tradeService.saveTrade(any(TradeDTO.class))).thenReturn(trade);
+        when(tradeMapper.toDto(trade)).thenReturn(tradeDTO);
         when(tradeService.validateUserPrivileges(anyString(), eq("CREATE_TRADE"), any(TradeDTO.class)))
                             .thenReturn(true); //avoids calling real method
         
@@ -185,8 +189,6 @@ public class TradeControllerTest {
         mockMvc.perform(post("/api/trades")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(tradeDTO)))
-                 /*FOLA COMMENTED: I changed .andExpect(status().isOk()) to .andExpect(status().isCreated())
-                 because POST endpoints should return 201 Created status by default, following REST conventions.*/
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.tradeId", is(1001)));
         verify(tradeService).saveTrade(any(TradeDTO.class));
@@ -239,8 +241,11 @@ public class TradeControllerTest {
         // FOLA COMMENTED: This ensures the trade entity also has the tradeId set; needed before calling the service layer
         trade.setTradeId(tradeId);
 
+        // ADD: Mock toEntity conversion
+        when(tradeMapper.toEntity(any(TradeDTO.class))).thenReturn(trade);
         // when(tradeService.saveTrade(any(Trade.class), any(TradeDTO.class))).thenReturn(trade);
         when(tradeService.amendTrade(eq(tradeId), any(TradeDTO.class))).thenReturn(trade);
+        when(tradeMapper.toDto(trade)).thenReturn(tradeDTO); // ADD: Mock toDto conversion for response
         doNothing().when(tradeService).populateReferenceDataByName(any(Trade.class), any(TradeDTO.class));
 
 
@@ -300,6 +305,217 @@ public class TradeControllerTest {
         //verify(tradeService, never()).createTrade(any(TradeDTO.class));
         verify(tradeService, never()).saveTrade(any(TradeDTO.class));
 
+    }
+
+    // ========================================
+    // NEW TESTS FOR UNCOVERED ENDPOINTS
+    // ========================================
+
+    @Test
+    void testSearchTrades() throws Exception {
+        // Given
+        String counterparty = "Goldman Sachs";
+        String book = "FX-BOOK-1";
+        Long trader = null;
+        String status = "CONFIRMED";
+        LocalDate from = LocalDate.now().minusDays(30);
+        LocalDate to = LocalDate.now();
+        
+        List<Trade> trades = List.of(trade);
+        
+        when(tradeService.searchTrades(counterparty, book, trader, status, from, to)).thenReturn(trades);
+        when(tradeMapper.toDto(any(Trade.class))).thenReturn(tradeDTO);
+        
+        // When/Then
+        mockMvc.perform(get("/api/trades/search")
+                        .param("counterparty", counterparty)
+                        .param("book", book)
+                        .param("status", status)
+                        .param("from", from.toString())
+                        .param("to", to.toString())
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)));
+        
+        verify(tradeService).searchTrades(counterparty, book, trader, status, from, to);
+    }
+
+    @Test
+    void testFilterTrades() throws Exception {
+        // Given
+        String counterparty = "JP Morgan";
+        String book = "RATES-BOOK-1";
+        Long trader = null;
+        String status = "NEW";
+        LocalDate from = LocalDate.now().minusDays(30);
+        LocalDate to = LocalDate.now();
+        int page = 0;
+        int size = 10;
+        String sortBy = "tradeDate";
+        String direction = "DESC";
+        
+        org.springframework.data.domain.Page<Trade> tradePage = 
+                new org.springframework.data.domain.PageImpl<>(List.of(trade));
+        
+        when(tradeService.searchTrades(counterparty, book, trader, status, from, to, page, size, sortBy, direction))
+                .thenReturn(tradePage);
+        when(tradeMapper.toDto(any(Trade.class))).thenReturn(tradeDTO);
+        
+        // When/Then
+        mockMvc.perform(get("/api/trades/filter")
+                        .param("counterparty", counterparty)
+                        .param("book", book)
+                        .param("status", status)
+                        .param("from", from.toString())
+                        .param("to", to.toString())
+                        .param("page", String.valueOf(page))
+                        .param("size", String.valueOf(size))
+                        .param("sortBy", sortBy)
+                        .param("direction", direction)
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk());
+        
+        verify(tradeService).searchTrades(counterparty, book, trader, status, from, to, page, size, sortBy, direction);
+    }
+
+    @Test
+    void testSearchByRsql() throws Exception {
+        // Given
+        String rsqlQuery = "bookName==FX-BOOK-1";
+        org.springframework.data.domain.Page<Trade> tradePage = 
+                new org.springframework.data.domain.PageImpl<>(List.of(trade));
+        
+        when(tradeService.searchByRsql(eq(rsqlQuery), any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(tradePage);
+        when(tradeMapper.toDto(any(Trade.class))).thenReturn(tradeDTO);
+        
+        // When/Then
+        mockMvc.perform(get("/api/trades/rsql")
+                        .param("query", rsqlQuery)
+                        .param("page", "0")
+                        .param("size", "10")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk());
+        
+        verify(tradeService).searchByRsql(eq(rsqlQuery), any(org.springframework.data.domain.Pageable.class));
+    }
+
+    @Test
+    @DisplayName("Returns trades for the logged-in trader")
+    void testGetMyTrades() throws Exception {
+        // Given
+        List<Trade> trades = List.of(trade);
+        
+        when(tradeService.getTradesByTrader()).thenReturn(trades);
+        when(tradeMapper.toDto(any(Trade.class))).thenReturn(tradeDTO);
+        
+        // When/Then
+        mockMvc.perform(get("/api/trades/my-trades")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)));
+        
+        verify(tradeService).getTradesByTrader();
+    }
+
+    @Test
+    @DisplayName("Returns trades belonging to a specific trading book")
+    void testGetBookTrades() throws Exception {
+        // Given
+        Long bookId = 1L;
+        List<Trade> trades = List.of(trade);
+        
+        when(tradeService.getTradesByBook(bookId)).thenReturn(trades);
+        when(tradeMapper.toDto(any(Trade.class))).thenReturn(tradeDTO);
+        
+        // When/Then
+        mockMvc.perform(get("/api/trades/book/{id}/trades", bookId)
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)));
+        
+        verify(tradeService).getTradesByBook(bookId);
+    }
+
+    @Test
+    @DisplayName("Returns a summary of all trades")
+    void testGetTradeSummary() throws Exception {
+        // Given
+        TradeSummaryDTO summaryDTO = TradeSummaryDTO.builder()
+                .totalTrades(100L)
+                .build();
+        
+        when(tradeService.getTradeSummary()).thenReturn(summaryDTO);
+        
+        // When/Then
+        mockMvc.perform(get("/api/trades/summary")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalTrades", is(100)));
+        
+        verify(tradeService).getTradeSummary();
+    }
+
+    @Test
+    @DisplayName("Returns daily summary of trades")
+    void testGetDailySummary() throws Exception {
+        // Given
+        DailySummaryDTO dailySummaryDTO = DailySummaryDTO.builder()
+                .todaysTradeCount(25L)
+                .todaysNewTrades(10L)
+                .build();
+        
+        when(tradeService.getDailySummary()).thenReturn(dailySummaryDTO);
+        
+        // When/Then
+        mockMvc.perform(get("/api/trades/daily-summary")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.todaysTradeCount", is(25)));
+        
+        verify(tradeService).getDailySummary();
+    }
+
+    @Test
+    @DisplayName("Searches trades by settlement instructions")
+    void testSearchBySettlementInstructions() throws Exception {
+        // Given
+        String instructions = "Bank ABC";
+        List<Trade> trades = List.of(trade);
+        
+        when(tradeService.searchBySettlementInstructions(instructions)).thenReturn(trades);
+        when(tradeMapper.toDto(any(Trade.class))).thenReturn(tradeDTO);
+        
+        // When/Then
+        mockMvc.perform(get("/api/trades/search/settlement-instructions")
+                        .param("instructions", instructions)
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)));
+        
+        verify(tradeService).searchBySettlementInstructions(instructions);
+    }
+
+    @Test
+    @DisplayName("Updates settlement instructions for a trade")
+    void testUpdateSettlementInstructions() throws Exception {
+        // Given
+        Long tradeId = 1001L;
+        String instructions = "Pay to account XYZ123 at Bank ABC, routing number 123456789, SWIFT code ABCDEF12";
+        
+        com.technicalchallenge.dto.SettlementInstructionsUpdateDTO requestDTO = 
+                new com.technicalchallenge.dto.SettlementInstructionsUpdateDTO();
+        requestDTO.setInstructions(instructions);
+        
+        doNothing().when(tradeService).updateSettlementInstructions(tradeId, instructions);
+        
+        // When/Then
+        mockMvc.perform(put("/api/trades/{id}/settlement-instructions", tradeId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(requestDTO)))
+                .andExpect(status().isOk());
+        
+        verify(tradeService).updateSettlementInstructions(tradeId, instructions);
     }
 
 

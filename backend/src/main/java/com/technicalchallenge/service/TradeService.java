@@ -102,7 +102,7 @@ public class TradeService {
     // This avoids passing username from controller, reducing risk of spoofing
     // It retrieves the username from Spring Security context
     // The visibility is package-private for testing purposes
-    String getLoggedInUsername() {
+    static String getLoggedInUsername() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         return (auth != null) ? auth.getName() : null;
     }
@@ -115,7 +115,9 @@ public class TradeService {
 
     public Optional<Trade> getTradeById(Long tradeId) {
         logger.debug("Retrieving trade by id: {}", tradeId);
-        return tradeRepository.findByTradeIdAndActiveTrue(tradeId);
+        Optional<Trade> tradeOpt = tradeRepository.findByTradeIdAndActiveTrue(tradeId);
+        return tradeOpt;
+
     }
 
 
@@ -138,13 +140,19 @@ public class TradeService {
             logger.info("Generated trade ID: {}", generatedTradeId);
         }
 
-         // Validate settlement instructions if provided
-        if (tradeDTO.getSettlementKey() != null) {
-            validateSettlementInstructions(tradeDTO.getSettlementKey());
+
+        // Validate general trade creation rules
+        validateTradeCreation(tradeDTO);
+
+
+            // Validate trade-specific business rules
+        ValidationResult validation = validateTradeBusinessRules(tradeDTO);
+        if (!validation.isValid()) {
+            throw new RuntimeException("Trade validation failed: " + String.join(", ", validation.getErrors()));
         }
 
-        // Validate business rules
-        validateTradeCreation(tradeDTO);
+        
+         validateSettlementInstructions(tradeDTO.getSettlementInstructions());
 
         // Create trade entity
         Trade trade = mapDTOToEntity(tradeDTO);
@@ -159,12 +167,6 @@ public class TradeService {
         }
 
 
-         // Validate business rules
-        ValidationResult validation = validateTradeBusinessRules(tradeDTO);
-        if (!validation.isValid()) {
-            throw new RuntimeException("Trade validation failed: " + String.join(", ", validation.getErrors()));
-        }
-
         // Populate reference data
         populateReferenceDataByName(trade, tradeDTO);
 
@@ -177,19 +179,6 @@ public class TradeService {
         // Create trade legs and cashflows
         createTradeLegsWithCashflows(tradeDTO, savedTrade);
 
-         // Save settlement instructions if provided
-        if (tradeDTO.getSettlementKey() != null && 
-            !tradeDTO.getSettlementKey().trim().isEmpty()) {
-            // Persist settlement instructions directly via repository since the service method is not defined
-            AdditionalInfo info = new AdditionalInfo();
-            info.setEntityType("TRADE");
-            info.setEntityId(savedTrade.getTradeId());
-            info.setSettlementKey("SETTLEMENT_INSTRUCTIONS");
-            info.setSettlementValue(tradeDTO.getSettlementKey());
-            info.setCreatedBy(getLoggedInUsername());
-            info.setCreatedAt(LocalDateTime.now());
-            additionalInfoRepository.save(info);
-        }
 
         logger.info("Successfully created trade with ID: {}", savedTrade.getTradeId());
         return savedTrade;
@@ -371,6 +360,9 @@ public class TradeService {
         tradeDTO.setTradeId(tradeId); // Ensure tradeId is set in DTO
         existingTrade.setTradeId(tradeId); // Ensure tradeId is set in entity
 
+        // Validate settlement instructions
+        validateSettlementInstructions(tradeDTO.getSettlementInstructions());
+
         // Deactivate existing trade
         existingTrade.setActive(false);
         existingTrade.setDeactivatedDate(LocalDateTime.now());
@@ -481,29 +473,7 @@ public class TradeService {
         return trade;
     }
 
-    // Validate settlement instructions content before persisting or saving via AdditionalInfoService
-    private void validateSettlementInstructions(String settlementKey) {
-        if (settlementKey == null || settlementKey.trim().isEmpty()) {
-            throw new RuntimeException("Settlement instructions cannot be empty");
-        }
-
-        String trimmed = settlementKey.trim();
-
-        // enforce reasonable length limits
-        if (trimmed.length() < 10) {
-            throw new RuntimeException("Settlement instructions must be at least 10 characters");
-        }
-        if (trimmed.length() > 1000) {
-            throw new RuntimeException("Settlement instructions must not exceed 1000 characters");
-        }
-
-        // simple safety checks to avoid HTML/script injections or binary garbage
-        if (trimmed.contains("<") || trimmed.contains(">") || trimmed.contains("\0")) {
-            throw new RuntimeException("Settlement instructions contain invalid characters");
-        }
-
-        logger.debug("Settlement instructions validated (length: {})", trimmed.length());
-    }
+   
 
     private void createTradeLegsWithCashflows(TradeDTO tradeDTO, Trade savedTrade) {
         for (int i = 0; i < tradeDTO.getTradeLegs().size(); i++) {
@@ -1417,78 +1387,51 @@ public class TradeService {
 
 
     // FOLA ADDED: New method to update settlement instructions for a trade
-    // This method either updates existing settlement instructions or creates new ones if they don't exist
+    // This method checks if the trade exists and calls the AdditionalInfoService to save or version the new instructions.
     @Transactional
-    public void updateSettlementInstructions(Long tradeId, String settlementValue) {
-        
-        String userId = getLoggedInUsername(); //Ensure we capture who made the update for audit trail
-        logger.info("Updating settlement instructions for trade {}", tradeId);
+    public void updateSettlementInstructions(Long tradeId, String instructions) {
+        String userId = getLoggedInUsername();
+        // Verify that the trade exists
+        Trade trade = tradeRepository.findById(tradeId)
+                .orElseThrow(() -> new RuntimeException("Trade not found with ID: " + tradeId));
 
-        // ✅ Validate input
-        if (settlementValue == null || settlementValue.trim().isEmpty()) {
-            throw new RuntimeException("Settlement instructions cannot be empty");
-        }
-        if (settlementValue.length() < 10 || settlementValue.length() > 500) {
-            throw new RuntimeException("Settlement instructions must be between 10 and 500 characters");
-        }
+        // Delegate to AdditionalInfoService for versioned storage
+        additionalInfoService.saveSettlementInstructions(tradeId, instructions);
 
-        // ✅ Find existing record
-        Optional<AdditionalInfo> existingInfoOpt =
-                additionalInfoRepository.findByEntityTypeAndEntityIdAndSettlementKey("TRADE", tradeId, "SETTLEMENT_INSTRUCTIONS");
-
-        AdditionalInfo info;
-        if (existingInfoOpt.isPresent()) {
-            // Update existing record
-            info = existingInfoOpt.get();
-            info.setSettlementValue(settlementValue);
-            info.setUpdatedBy(userId);
-            info.setUpdatedAt(LocalDateTime.now());
-            logger.info("Updated existing settlement instructions for trade {}", tradeId);
-        } else {
-            // Create new record
-            info = new AdditionalInfo();
-            info.setEntityType("TRADE");
-            info.setEntityId(tradeId);
-            info.setSettlementKey("SETTLEMENT_INSTRUCTIONS");
-            info.setSettlementValue(settlementValue);
-            info.setCreatedBy(userId);
-            info.setCreatedAt(LocalDateTime.now());
-            logger.info("Created new settlement instructions for trade {}", tradeId);
-        }
-
-        additionalInfoRepository.save(info);
+        // Log action for audit trail
+        logger.info("User " + userId + " updated settlement instructions for Trade ID " + tradeId);
     }
 
     // FOLA ADDED: New method to search trades by settlement instructions content (partial match)
-    public List<TradeDTO> searchBySettlementInstructions(String searchText) {
-        logger.info("Searching for trades with settlement instructions containing '{}'", searchText);
-
-        List<AdditionalInfo> infos = additionalInfoRepository.searchSettlementInstructions(searchText);
-
-        // Collect unique trade IDs
-        List<Long> tradeIds = infos.stream()
-                .map(AdditionalInfo::getEntityId)
-                .distinct()
-                .toList();
-
-        // Retrieve those trades
-        List<Trade> trades = tradeRepository.findAllById(tradeIds);
-
-        // Convert to DTOs
-        List<TradeDTO> result = trades.stream().map(tradeMapper::toDto).toList();
-
-        // Optionally attach settlement info to DTOs
-        result.forEach(dto -> {
-            infos.stream()
-                    .filter(ai -> ai.getEntityId().equals(dto.getTradeId()))
-                    .findFirst()
-                    .ifPresent(ai -> dto.setSettlementValue(ai.getSettlementValue()));
-        });
-
-        return result;
+    // This method queries the AdditionalInfoService to find trade IDs with matching instructions
+     public List<Trade> searchBySettlementInstructions(String instructions) {
+        List<Long> tradeIds = additionalInfoService.findTradesBySettlementInstructions(instructions);
+        return tradeRepository.findAllById(tradeIds);
     }
 
 
-  
+
+
+    /**
+     * Validates settlement instruction text before saving.
+     * Ensures the text meets business and security requirements.
+     */
+    private void validateSettlementInstructions(String instructions) {
+        // Optional field — skip if not provided
+        if (instructions == null || instructions.isBlank()) return;
+
+        String trimmed = instructions.trim();
+
+        // Length validation
+        if (trimmed.length() < 10 || trimmed.length() > 500) {
+            throw new RuntimeException("Settlement instructions must be between 10 and 500 characters");
+        }
+
+        // Content validation — reject special characters that might cause injection or formatting issues
+        if (!trimmed.matches("^[a-zA-Z0-9.,;:()\\-\\s]+$")) {
+            throw new RuntimeException("Settlement instructions contain invalid characters");
+        }
+    }
+
 
 }

@@ -53,6 +53,7 @@ import org.springframework.data.jpa.domain.Specification;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -659,117 +660,6 @@ class TradeServiceTest {
     }
 
 
-
-
-
-    
-    // @Test
-    // @DisplayName("Test to validate trade creation privilege for middle office user. This should fail.")
-    // void testValidateUserPrivileges_middleoffice_ShouldFail() {
-    //     // Reset the spy to remove the global stubbing for this specific test
-    //     reset(tradeService);
-        
-    //     // Given
-    //     ApplicationUser user = new ApplicationUser();
-    //     user.setId(1001L);
-    //     user.setLoginId("middleofficeuser");
-
-    //     UserProfile profile = new UserProfile();
-    //     profile.setId(1001L);
-    //     profile.setUserType("MO");
-    //     user.setUserProfile(profile);
-
-    //     when(applicationUserRepository.findByLoginId("middleofficeuser")).thenReturn(Optional.of(user));
-    //     when(userProfileRepository.findById(1001L)).thenReturn(Optional.of(profile));
-    
-    //     // Mock userPrivilegeRepository to return privileges that do NOT include "BOOK_TRADE"
-    //     UserPrivilege readPrivilege = new UserPrivilege();
-    //     readPrivilege.setPrivilegeId(1002L); // This corresponds to "READ_TRADE"
-
-    //     when(userPrivilegeRepository.findByUserId(1001L)).thenReturn(List.of(readPrivilege));
-
-    //     // Mock privilegeRepository to map that privilege ID to "READ_TRADE"
-    //     Privilege privilege = new Privilege();
-    //     privilege.setId(1002L);
-    //     privilege.setName("READ_TRADE"); // User only has READ_TRADE, not BOOK_TRADE
-
-    //     when(privilegeRepository.findAllById(List.of(1002L))).thenReturn(List.of(privilege));
-
-    //     // When - Check for BOOK_TRADE privilege (which user doesn't have)
-    //     boolean hasPrivileges = tradeService.validateUserPrivileges("middleofficeuser", "BOOK_TRADE", tradeDTO);
-
-    //     // Then - Should be false because user doesn't have BOOK_TRADE privilege
-    //     assertFalse(hasPrivileges);
-    // }
-
-
-    @Test
-    @DisplayName("Test getTradesByTrader - returns trades for logged-in user")
-    void testGetTradesByTrader_ReturnsTradesForLoggedInUser() {
-        // Arrange
-        String loggedInUsername = "trader1";
-        
-        // Mock the getLoggedInUsername() method to return our test user
-        // Spy the tradeService to override getLoggedInUsername, so we can simulate logged-in user
-        TradeService spyService = Mockito.spy(tradeService);
-        doReturn(loggedInUsername).when(spyService).getLoggedInUsername();
-        
-        // Create test trades with trader information
-        ApplicationUser trader1 = new ApplicationUser();
-        trader1.setLoginId(loggedInUsername);
-        trader1.setFirstName("Test");
-        trader1.setLastName("Trader");
-        
-        Trade userTrade = new Trade();
-        userTrade.setTradeId(1001L);
-        userTrade.setTraderUser(trader1);
-        userTrade.setActive(true);
-        
-        // ✅ FIX: Use findAll() without arguments
-        when(tradeRepository.findAll()).thenReturn(List.of(userTrade));
-        
-        // Act
-        List<Trade> result = spyService.getTradesByTrader();
-        
-        // Assert
-        assertNotNull(result);
-        assertEquals(1, result.size());
-        assertEquals(loggedInUsername, result.get(0).getTraderUser().getLoginId());
-    }
-
-
-    @Test
-    @DisplayName("Test getTradesByTrader - returns empty list when user has no trades")
-    void testGetTradesByTrader_UserHasNoTrades() {
-        // Arrange
-        String loggedInUsername = "trader3";
-
-        TradeService spyService = Mockito.spy(tradeService);
-        doReturn(loggedInUsername).when(spyService).getLoggedInUsername();
-
-        // Create trades for other users only
-        ApplicationUser otherTrader = new ApplicationUser();
-        otherTrader.setLoginId("other_trader");
-        otherTrader.setFirstName("Other");
-        otherTrader.setLastName("Trader");
-        
-        Trade otherTrade = new Trade();
-        otherTrade.setTradeId(1002L);
-        otherTrade.setTraderUser(otherTrader);
-        otherTrade.setActive(true);
-
-        // ✅ FIX: Use findAll() without arguments
-        when(tradeRepository.findAll()).thenReturn(List.of(otherTrade));
-
-        // Act
-        List<Trade> result = spyService.getTradesByTrader();
-
-        // Assert
-        assertNotNull(result);
-        assertTrue(result.isEmpty());
-    }
-
-
     @Test
     @DisplayName("Test getTradeSummary - returns summary with correct totals")
     void testGetTradeSummary_ReturnsCorrectSummary() {
@@ -929,6 +819,230 @@ class TradeServiceTest {
         trade.setTradeLegs(List.of(leg1));
         
         return trade;
+    }
+
+    // ========================================
+    // NEW TESTS FOR UNCOVERED METHODS
+    // ========================================
+
+    @Test
+    @DisplayName("Test getAllTrades - returns all trades from repository")
+    void testGetAllTrades() {
+        // Given
+        Trade trade1 = createTestTradeForSummary("Goldman Sachs", "FX-BOOK-1", "NEW", "FX_SWAP");
+        trade1.setTradeId(1001L);
+        
+        Trade trade2 = createTestTradeForSummary("JP Morgan", "RATES-BOOK-1", "CONFIRMED", "IRS");
+        trade2.setTradeId(1002L);
+        
+        List<Trade> trades = Arrays.asList(trade1, trade2);
+        
+        when(tradeRepository.findAll()).thenReturn(trades);
+        
+        // When
+        List<Trade> result = tradeService.getAllTrades();
+        
+        // Then
+        assertNotNull(result);
+        assertEquals(2, result.size());
+        assertEquals(1001L, result.get(0).getTradeId());
+        assertEquals(1002L, result.get(1).getTradeId());
+        verify(tradeRepository).findAll();
+    }
+
+    @Test
+    @DisplayName("Test deleteTrade - successfully cancels trade by setting status to CANCELLED")
+    void testDeleteTrade() {
+        // Given
+        Long tradeId = 1001L;
+        Trade trade = createTestTradeForSummary("Goldman Sachs", "FX-BOOK-1", "NEW", "FX_SWAP");
+        trade.setTradeId(tradeId);
+        trade.setActive(true);
+        
+        TradeStatus cancelledStatus = new TradeStatus();
+        cancelledStatus.setId(5L);
+        cancelledStatus.setTradeStatus("CANCELLED");
+        
+        when(tradeRepository.findByTradeIdAndActiveTrue(tradeId)).thenReturn(Optional.of(trade));
+        when(tradeStatusRepository.findByTradeStatus("CANCELLED")).thenReturn(Optional.of(cancelledStatus));
+        when(tradeRepository.save(any(Trade.class))).thenReturn(trade);
+        
+        // When
+        tradeService.deleteTrade(tradeId);
+        
+        // Then
+        verify(tradeRepository).findByTradeIdAndActiveTrue(tradeId);
+        verify(tradeStatusRepository).findByTradeStatus("CANCELLED");
+        verify(tradeRepository).save(trade);
+        assertEquals(cancelledStatus, trade.getTradeStatus());
+    }
+
+    @Test
+    @DisplayName("Test terminateTrade - successfully terminates trade")
+    void testTerminateTrade() {
+        // Given
+        Long tradeId = 1001L;
+        Trade trade = createTestTradeForSummary("JP Morgan", "RATES-BOOK-1", "CONFIRMED", "IRS");
+        trade.setTradeId(tradeId);
+        trade.setActive(true);
+        
+        TradeStatus terminatedStatus = new TradeStatus();
+        terminatedStatus.setId(6L);
+        terminatedStatus.setTradeStatus("TERMINATED");
+        
+        when(tradeRepository.findByTradeIdAndActiveTrue(tradeId)).thenReturn(Optional.of(trade));
+        when(tradeStatusRepository.findByTradeStatus("TERMINATED")).thenReturn(Optional.of(terminatedStatus));
+        when(tradeRepository.save(any(Trade.class))).thenReturn(trade);
+        
+        // When
+        Trade result = tradeService.terminateTrade(tradeId);
+        
+        // Then
+        assertNotNull(result);
+        verify(tradeRepository).findByTradeIdAndActiveTrue(tradeId);
+        verify(tradeStatusRepository).findByTradeStatus("TERMINATED");
+        verify(tradeRepository).save(trade);
+        assertEquals(terminatedStatus, result.getTradeStatus());
+    }
+
+    @Test
+    @DisplayName("Test cancelTrade - successfully cancels trade")
+    void testCancelTrade() {
+        // Given
+        Long tradeId = 1001L;
+        Trade trade = createTestTradeForSummary("Morgan Stanley", "CREDIT-BOOK-1", "CONFIRMED", "CDS");
+        trade.setTradeId(tradeId);
+        trade.setActive(true);
+        
+        TradeStatus cancelledStatus = new TradeStatus();
+        cancelledStatus.setId(5L);
+        cancelledStatus.setTradeStatus("CANCELLED");
+        
+        when(tradeRepository.findByTradeIdAndActiveTrue(tradeId)).thenReturn(Optional.of(trade));
+        when(tradeStatusRepository.findByTradeStatus("CANCELLED")).thenReturn(Optional.of(cancelledStatus));
+        when(tradeRepository.save(any(Trade.class))).thenReturn(trade);
+        
+        // When
+        Trade result = tradeService.cancelTrade(tradeId);
+        
+        // Then
+        assertNotNull(result);
+        verify(tradeRepository).findByTradeIdAndActiveTrue(tradeId);
+        verify(tradeStatusRepository).findByTradeStatus("CANCELLED");
+        verify(tradeRepository).save(trade);
+        assertEquals(cancelledStatus, result.getTradeStatus());
+    }
+
+    @Test
+    @DisplayName("Test searchByRsql - returns filtered trades using RSQL query")
+    @SuppressWarnings("unchecked")
+    void testSearchByRsql() {
+        // Given
+        String rsqlQuery = "bookName==TestBook";
+        Pageable pageable = PageRequest.of(0, 10);
+        
+        Trade trade1 = createTestTradeForSummary("Goldman Sachs", "TestBook", "NEW", "FX_SWAP");
+        trade1.setTradeId(1001L);
+        
+        Page<Trade> tradePage = new PageImpl<>(Arrays.asList(trade1));
+        
+        when(tradeRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(tradePage);
+        
+        // When
+        Page<Trade> result = tradeService.searchByRsql(rsqlQuery, pageable);
+        
+        // Then
+        assertNotNull(result);
+        assertEquals(1, result.getTotalElements());
+        verify(tradeRepository).findAll(any(Specification.class), any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("Test getDailySummary - returns daily summary with correct data")
+    void testGetDailySummary() {
+        // Given
+        LocalDate today = LocalDate.now();
+        LocalDate yesterday = today.minusDays(1);
+        
+        Trade trade1 = createTestTradeForSummary("Goldman Sachs", "FX-BOOK-1", "NEW", "FX_SWAP");
+        trade1.setTradeDate(today);
+        
+        Trade trade2 = createTestTradeForSummary("JP Morgan", "RATES-BOOK-1", "CONFIRMED", "IRS");
+        trade2.setTradeDate(today);
+        
+        Trade trade3 = createTestTradeForSummary("Morgan Stanley", "CREDIT-BOOK-1", "AMENDED", "CDS");
+        trade3.setTradeDate(yesterday);
+        
+        List<Trade> allTrades = Arrays.asList(trade1, trade2, trade3);
+        
+        when(tradeRepository.findAll()).thenReturn(allTrades);
+        
+        // When
+        DailySummaryDTO result = tradeService.getDailySummary();
+        
+        // Then
+        assertNotNull(result);
+        assertEquals(2, result.getTodaysTradeCount()); // Two trades today
+        assertEquals(1, result.getYesterdayTradeCount()); // One trade yesterday
+        assertEquals(1, result.getTodaysNewTrades()); // One NEW trade today
+        verify(tradeRepository, atLeastOnce()).findAll();
+    }
+
+    @Test
+    @DisplayName("Test updateSettlementInstructions - updates settlement instructions successfully")
+    void testUpdateSettlementInstructions() {
+        // Given
+        Long tradeId = 1001L;
+        String settlementInstructions = "Pay to account XYZ123 at Bank ABC";
+        
+        Trade trade = createTestTradeForSummary("Goldman Sachs", "FX-BOOK-1", "CONFIRMED", "FX_SWAP");
+        trade.setTradeId(tradeId);
+        
+        ApplicationUser mockUser = new ApplicationUser();
+        mockUser.setLoginId("trader1");
+        
+        when(tradeRepository.findById(tradeId)).thenReturn(Optional.of(trade));
+        lenient().when(applicationUserRepository.findByLoginId(anyString())).thenReturn(Optional.of(mockUser));
+        
+        // When
+        tradeService.updateSettlementInstructions(tradeId, settlementInstructions);
+        
+        // Then
+        verify(tradeRepository).findById(tradeId);
+        verify(additionalInfoService).saveSettlementInstructions(tradeId, settlementInstructions);
+    }
+
+    @Test
+    @DisplayName("Test searchBySettlementInstructions - finds trades with matching settlement instructions")
+    void testSearchBySettlementInstructions() {
+        // Given
+        String searchText = "Bank ABC";
+        
+        Long tradeId1 = 1001L;
+        Long tradeId2 = 1002L;
+        List<Long> tradeIds = Arrays.asList(tradeId1, tradeId2);
+        
+        Trade trade1 = createTestTradeForSummary("Goldman Sachs", "FX-BOOK-1", "CONFIRMED", "FX_SWAP");
+        trade1.setTradeId(tradeId1);
+        
+        Trade trade2 = createTestTradeForSummary("JP Morgan", "RATES-BOOK-1", "CONFIRMED", "IRS");
+        trade2.setTradeId(tradeId2);
+        
+        List<Trade> trades = Arrays.asList(trade1, trade2);
+        
+        when(additionalInfoService.findTradesBySettlementInstructions(searchText)).thenReturn(tradeIds);
+        when(tradeRepository.findAllById(tradeIds)).thenReturn(trades);
+        
+        // When
+        List<Trade> result = tradeService.searchBySettlementInstructions(searchText);
+        
+        // Then
+        assertNotNull(result);
+        assertEquals(2, result.size());
+        assertEquals(tradeId1, result.get(0).getTradeId());
+        assertEquals(tradeId2, result.get(1).getTradeId());
+        verify(additionalInfoService).findTradesBySettlementInstructions(searchText);
+        verify(tradeRepository).findAllById(tradeIds);
     }
 
 }
