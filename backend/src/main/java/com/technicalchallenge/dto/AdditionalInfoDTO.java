@@ -22,7 +22,4 @@ public class AdditionalInfoDTO {
     private LocalDateTime createdDate;
     private LocalDateTime lastModifiedDate;
     private Integer version;
-    // New fields for settlement instructions
-    private String settlementKey;
-    private String settlementValue;
 }

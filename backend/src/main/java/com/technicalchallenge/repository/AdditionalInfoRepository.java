@@ -18,23 +18,10 @@ public interface AdditionalInfoRepository extends JpaRepository<AdditionalInfo, 
     @Query("SELECT a FROM AdditionalInfo a WHERE a.entityType = :entityType AND a.entityId = :entityId AND a.fieldName = :fieldName AND a.active = true")
     AdditionalInfo findActiveByEntityTypeAndEntityIdAndFieldName(@Param("entityType") String entityType, @Param("entityId") Long entityId, @Param("fieldName") String fieldName);
 
-
-
-    // Find one record for a specific trade’s settlement instructions
-    // Useful when retrieving settlement instructions for a trade for an update operation
-    Optional<AdditionalInfo> findByEntityTypeAndEntityIdAndSettlementKey(String entityType, Long entityId, String settlementKey);
-
-    // Search trades whose settlement instructions contain certain text (for operations search)
-    // This supports partial text matching and it's case-insensitive
-    @Query("""
-        SELECT ai FROM AdditionalInfo ai
-        WHERE ai.entityType = 'TRADE'
-          AND LOWER(ai.settlementValue) LIKE LOWER(CONCAT('%', :searchText, '%'))
-    """)
-    List<AdditionalInfo> searchSettlementInstructions(String searchText);
-
-    // Retrieve all settlement info records for a specific trade (useful for display or audit)
-    List<AdditionalInfo> findByEntityTypeAndEntityId(String entityType, Long entityId);
-
     List<AdditionalInfo> findByEntityTypeAndEntityIdAndActiveTrue(String entityType, Long entityId);
+
+    Optional<AdditionalInfo> findByEntityTypeAndEntityIdAndFieldName(String entityType, Long entityId, String fieldName);
+
+    @Query("SELECT a.entityId FROM AdditionalInfo a WHERE a.entityType = :entityType AND a.fieldName = :fieldName AND LOWER(a.fieldValue) LIKE LOWER(CONCAT('%', :value, '%')) AND a.active = true")
+    List<Long> findEntityIdsByFieldNameAndValueContainingIgnoreCase(@Param("entityType") String entityType, @Param("fieldName") String fieldName, @Param("value") String value);
 }
