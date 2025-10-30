@@ -133,6 +133,7 @@ public class AdditionalInfoService {
         newInfo.setEntityId(tradeId);
         newInfo.setFieldName(SETTLEMENT_INSTRUCTIONS_KEY);
         newInfo.setFieldValue(instructions);
+        newInfo.setFieldType("STRING"); // Set field type - required field
         newInfo.setActive(true);
         newInfo.setCreatedDate(LocalDateTime.now());
         newInfo.setLastModifiedDate(LocalDateTime.now());
@@ -153,8 +154,11 @@ public class AdditionalInfoService {
 
     // ===== SEARCH =====
     public List<Long> findTradesBySettlementInstructions(String searchText) {
-        return additionalInfoRepository.findEntityIdsByFieldNameAndValueContainingIgnoreCase(
+        log.debug("Searching for settlement instructions containing: {}", searchText);
+        List<Long> tradeIds = additionalInfoRepository.findEntityIdsByFieldNameAndValueContainingIgnoreCase(
                 "TRADE", SETTLEMENT_INSTRUCTIONS_KEY, searchText);
+        log.debug("Found {} trades with matching settlement instructions: {}", tradeIds.size(), tradeIds);
+        return tradeIds;
     }
 
     // ===== HELPER =====

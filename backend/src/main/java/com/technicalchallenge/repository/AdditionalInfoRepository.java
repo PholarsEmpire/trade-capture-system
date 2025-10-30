@@ -23,5 +23,5 @@ public interface AdditionalInfoRepository extends JpaRepository<AdditionalInfo, 
     Optional<AdditionalInfo> findByEntityTypeAndEntityIdAndFieldName(String entityType, Long entityId, String fieldName);
 
     @Query("SELECT a.entityId FROM AdditionalInfo a WHERE a.entityType = :entityType AND a.fieldName = :fieldName AND LOWER(a.fieldValue) LIKE LOWER(CONCAT('%', :value, '%')) AND a.active = true")
-    List<Long> findEntityIdsByFieldNameAndValueContainingIgnoreCase(String entityType, String fieldName, String value);
+    List<Long> findEntityIdsByFieldNameAndValueContainingIgnoreCase(@Param("entityType") String entityType, @Param("fieldName") String fieldName, @Param("value") String value);
 }

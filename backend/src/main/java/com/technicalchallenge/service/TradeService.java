@@ -1391,8 +1391,8 @@ public class TradeService {
     @Transactional
     public void updateSettlementInstructions(Long tradeId, String instructions) {
         String userId = getLoggedInUsername();
-        // Verify that the trade exists
-        Trade trade = tradeRepository.findById(tradeId)
+        // Verify that the trade exists using business key (tradeId)
+        Trade trade = tradeRepository.findByTradeIdAndActiveTrue(tradeId)
                 .orElseThrow(() -> new RuntimeException("Trade not found with ID: " + tradeId));
 
         // Delegate to AdditionalInfoService for versioned storage
@@ -1405,8 +1405,12 @@ public class TradeService {
     // FOLA ADDED: New method to search trades by settlement instructions content (partial match)
     // This method queries the AdditionalInfoService to find trade IDs with matching instructions
      public List<Trade> searchBySettlementInstructions(String instructions) {
+        logger.info("Searching trades by settlement instructions: {}", instructions);
         List<Long> tradeIds = additionalInfoService.findTradesBySettlementInstructions(instructions);
-        return tradeRepository.findAllById(tradeIds);
+        logger.info("Found {} trade IDs from settlement instructions search: {}", tradeIds.size(), tradeIds);
+        List<Trade> trades = tradeRepository.findByTradeIdInAndActiveTrue(tradeIds);
+        logger.info("Retrieved {} trades matching the settlement instructions", trades.size());
+        return trades;
     }
 
 

@@ -1001,14 +1001,14 @@ class TradeServiceTest {
         ApplicationUser mockUser = new ApplicationUser();
         mockUser.setLoginId("trader1");
         
-        when(tradeRepository.findById(tradeId)).thenReturn(Optional.of(trade));
+        when(tradeRepository.findByTradeIdAndActiveTrue(tradeId)).thenReturn(Optional.of(trade));
         lenient().when(applicationUserRepository.findByLoginId(anyString())).thenReturn(Optional.of(mockUser));
         
         // When
         tradeService.updateSettlementInstructions(tradeId, settlementInstructions);
         
         // Then
-        verify(tradeRepository).findById(tradeId);
+        verify(tradeRepository).findByTradeIdAndActiveTrue(tradeId);
         verify(additionalInfoService).saveSettlementInstructions(tradeId, settlementInstructions);
     }
 
@@ -1031,7 +1031,7 @@ class TradeServiceTest {
         List<Trade> trades = Arrays.asList(trade1, trade2);
         
         when(additionalInfoService.findTradesBySettlementInstructions(searchText)).thenReturn(tradeIds);
-        when(tradeRepository.findAllById(tradeIds)).thenReturn(trades);
+        when(tradeRepository.findByTradeIdInAndActiveTrue(tradeIds)).thenReturn(trades);
         
         // When
         List<Trade> result = tradeService.searchBySettlementInstructions(searchText);
@@ -1042,7 +1042,7 @@ class TradeServiceTest {
         assertEquals(tradeId1, result.get(0).getTradeId());
         assertEquals(tradeId2, result.get(1).getTradeId());
         verify(additionalInfoService).findTradesBySettlementInstructions(searchText);
-        verify(tradeRepository).findAllById(tradeIds);
+        verify(tradeRepository).findByTradeIdInAndActiveTrue(tradeIds);
     }
 
 }

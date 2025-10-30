@@ -56,3 +56,8 @@ INSERT INTO cashflow (id, payment_value, value_date, rate, leg_id, pay_rec_id, p
   (1000, 12500.00, '2024-09-01', 0.05, 1000, 1000, 1000, 1000, true, '2024-06-01T10:30:00', '2024-06-01', null),
   (1001, 12500.00, '2024-12-01', 0.05, 1000, 1000, 1000, 1000, true, '2024-06-01T10:30:00', '2024-06-01', null),
   (1002, 225000.00, '2024-06-04', 0.045, 1002, 1000, 1000, 1001, true, '2024-06-02T11:15:00', '2024-06-02', null);
+
+-- Sample Settlement Instructions (Additional Info)
+INSERT INTO additional_info (id, entity_type, entity_id, field_name, field_value, field_type, active, version, created_date, last_modified_date, deactivated_date) VALUES
+  (1000, 'TRADE', 100001, 'SETTLEMENT_INSTRUCTIONS', 'Pay via Bank ABC, Account: 12345-67890, SWIFT: ABCGB2LXXX, Reference: TRADE-100001', 'STRING', true, 1, '2024-06-01T10:30:00', '2024-06-01T10:30:00', null),
+  (1001, 'TRADE', 100002, 'SETTLEMENT_INSTRUCTIONS', 'Pay via HSBC London, Account: 98765-43210, SWIFT: HSBCGB2LXXX, Reference: TRADE-100002', 'STRING', true, 1, '2024-06-02T11:15:00', '2024-06-02T11:15:00', null);
