@@ -16,10 +16,12 @@ public class AuthorizationController {
     private final AuthorizationService authorizationService;
 
 
-    @PostMapping("/{userName}")
-    public ResponseEntity<?> login(@PathVariable(name = "userName") String userName, @RequestParam(name = "Authorization") String authorization) {
+    @PostMapping("/{user}")
+    public ResponseEntity<?> login(
+            @PathVariable(name = "user") String username, 
+            @RequestParam(name = "Authorization") String password) {
 
-        return authorizationService.authenticateUser(userName, authorization) ?
+        return authorizationService.authenticateUser(username, password) ?
                 ResponseEntity.ok("Login successful") :
                 ResponseEntity.status(HttpStatus.FORBIDDEN).body("Login failed");
     }

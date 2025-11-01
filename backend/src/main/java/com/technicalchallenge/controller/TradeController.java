@@ -102,10 +102,6 @@ public class TradeController {
             @Parameter(description = "Unique identifier of the trade", required = true)
             @PathVariable(name = "id") Long id) {
         logger.debug("Fetching trade by id: {}", id);
-        // return tradeService.getTradeById(id)
-        //         .map(tradeMapper::toDto)
-        //         .map(ResponseEntity::ok)
-        //         .orElse(ResponseEntity.notFound().build());
         return tradeService.getTradeById(id)
         .map(trade -> {
             TradeDTO dto = tradeMapper.toDto(trade);

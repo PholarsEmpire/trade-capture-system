@@ -7,15 +7,20 @@ import java.time.LocalDate;
 import org.springframework.data.jpa.domain.Specification;
 import jakarta.persistence.criteria.*;
 
-// Custom RSQL Visitor to convert RSQL AST (Abstract Syntax Tree) nodes into JPA Specifications
-// This class extends AbstractRSQLVisitor and implements methods to handle AND, OR, and Comparison nodes
-// It builds Specifications that can be used to query the database based on RSQL queries
+/**
+ * Custom RSQL Visitor to convert RSQL AST (Abstract Syntax Tree) nodes into JPA Specifications.
+ * This class implements RSQLVisitor and handles AND, OR, and Comparison nodes.
+ * It builds type-safe Specifications for database queries based on RSQL query strings.
+ * 
+ * Supported operators: ==, !=, =gt=, =lt=, =ge=, =le=
+ * Supported types: String, Integer, Long, Double, Boolean, LocalDate
+ */
 public class RsqlVisitor<T> implements RSQLVisitor<Specification<T>, Void> {
 
     @Override
     public Specification<T> visit(AndNode node, Void param) {
         return node.getChildren().stream()
-                .map(n -> n.accept(this,null))
+                .map(n -> n.accept(this, null))
                 .reduce(Specification::and)
                 .orElse(null);
     }
@@ -23,117 +28,118 @@ public class RsqlVisitor<T> implements RSQLVisitor<Specification<T>, Void> {
     @Override
     public Specification<T> visit(OrNode node, Void param) {
         return node.getChildren().stream()
-                .map(n -> n.accept(this,null))
+                .map(n -> n.accept(this, null))
                 .reduce(Specification::or)
                 .orElse(null);
     }
 
-
-    // @Override
-    // public Specification<T> visit(ComparisonNode node, Void param) {
-    //     return (root, query, cb) -> {
-    //         String selector = node.getSelector();
-    //         String argument = node.getArguments().get(0);
-    //         Path<?> path = getPath(root, selector);
-
-    //         Class<?> type = path.getJavaType();
-
-    //         switch (node.getOperator().getSymbol()) {
-    //             case "==": return cb.equal(path, convert(argument, type));
-    //             case "!=": return cb.notEqual(path, convert(argument, type));
-    //             case "=gt=": return cb.greaterThan(path.as(type), (Comparable<?>) convert(argument, type));
-    //             case "=lt=": return cb.lessThan(path.as(type), (Comparable<?>) convert(argument, type));
-    //             case "=ge=": return cb.greaterThanOrEqualTo(path.as(type), (Comparable<?>) convert(argument, type));
-    //             case "=le=": return cb.lessThanOrEqualTo(path.as(type), (Comparable<?>) convert(argument, type));
-    //             default: throw new IllegalArgumentException("Unsupported operator: " + node.getOperator());
-    //         }
-    //     };
-    // }
-
-
-
-
-
+    @SuppressWarnings({"unchecked", "rawtypes"})
     @Override
     public Specification<T> visit(ComparisonNode node, Void param) {
         return (root, query, cb) -> {
             String selector = node.getSelector();
             String argument = node.getArguments().get(0);
             Path<?> path = getPath(root, selector);
-
             Class<?> type = path.getJavaType();
+            Object convertedValue = convert(argument, type);
 
             switch (node.getOperator().getSymbol()) {
                 case "==":
-                    return cb.equal(path, convert(argument, type));
+                    return cb.equal(path, convertedValue);
+                    
                 case "!=":
-                    return cb.notEqual(path, convert(argument, type));
+                    return cb.notEqual(path, convertedValue);
+                    
                 case "=gt=":
-                    if (type.equals(Integer.class)) {
-                        return cb.greaterThan((Path<Integer>) path, Integer.valueOf(argument));
-                    } else if (type.equals(Long.class)) {
-                        return cb.greaterThan((Path<Long>) path, Long.valueOf(argument));
-                    } else if (type.equals(Double.class)) {
-                        return cb.greaterThan((Path<Double>) path, Double.valueOf(argument));
-                    } else if (Comparable.class.isAssignableFrom(type)) {
-                        return cb.greaterThan((Path<Comparable>) path, (Comparable) convert(argument, type));
-                    } else {
-                        throw new IllegalArgumentException("Field " + selector + " is not Comparable");
-                    }
+                    return createComparison(cb, path, convertedValue, type, selector, 
+                        (criteriaBuilder, p, v) -> criteriaBuilder.greaterThan((Expression<Comparable>) p, (Comparable) v));
+                    
                 case "=lt=":
-                    if (type.equals(Integer.class)) {
-                        return cb.lessThan((Path<Integer>) path, Integer.valueOf(argument));
-                    } else if (type.equals(Long.class)) {
-                        return cb.lessThan((Path<Long>) path, Long.valueOf(argument));
-                    } else if (type.equals(Double.class)) {
-                        return cb.lessThan((Path<Double>) path, Double.valueOf(argument));
-                    } else if (Comparable.class.isAssignableFrom(type)) {
-                        return cb.lessThan((Path<Comparable>) path, (Comparable) convert(argument, type));
-                    } else {
-                        throw new IllegalArgumentException("Field " + selector + " is not Comparable");
-                    }
+                    return createComparison(cb, path, convertedValue, type, selector,
+                        (criteriaBuilder, p, v) -> criteriaBuilder.lessThan((Expression<Comparable>) p, (Comparable) v));
+                    
                 case "=ge=":
-                    if (type.equals(Integer.class)) {
-                        return cb.greaterThanOrEqualTo((Path<Integer>) path, Integer.valueOf(argument));
-                    } else if (type.equals(Long.class)) {
-                        return cb.greaterThanOrEqualTo((Path<Long>) path, Long.valueOf(argument));
-                    } else if (type.equals(Double.class)) {
-                        return cb.greaterThanOrEqualTo((Path<Double>) path, Double.valueOf(argument));
-                    } else if (Comparable.class.isAssignableFrom(type)) {
-                        return cb.greaterThanOrEqualTo((Path<Comparable>) path, (Comparable) convert(argument, type));
-                    } else {
-                        throw new IllegalArgumentException("Field " + selector + " is not Comparable");
-                    }
+                    return createComparison(cb, path, convertedValue, type, selector,
+                        (criteriaBuilder, p, v) -> criteriaBuilder.greaterThanOrEqualTo((Expression<Comparable>) p, (Comparable) v));
+                    
                 case "=le=":
-                    if (type.equals(Integer.class)) {
-                        return cb.lessThanOrEqualTo((Path<Integer>) path, Integer.valueOf(argument));
-                    } else if (type.equals(Long.class)) {
-                        return cb.lessThanOrEqualTo((Path<Long>) path, Long.valueOf(argument));
-                    } else if (type.equals(Double.class)) {
-                        return cb.lessThanOrEqualTo((Path<Double>) path, Double.valueOf(argument));
-                    } else if (Comparable.class.isAssignableFrom(type)) {
-                        return cb.lessThanOrEqualTo((Path<Comparable>) path, (Comparable) convert(argument, type));
-                    } else {
-                        throw new IllegalArgumentException("Field " + selector + " is not Comparable");
-                    }
+                    return createComparison(cb, path, convertedValue, type, selector,
+                        (criteriaBuilder, p, v) -> criteriaBuilder.lessThanOrEqualTo((Expression<Comparable>) p, (Comparable) v));
+                    
                 default:
                     throw new IllegalArgumentException("Unsupported operator: " + node.getOperator());
             }
         };
     }
 
-
-// Helper method to convert String arguments to the appropriate type
-    private Object convert(String value, Class<?> type) {
-        if (type.equals(Integer.class)) return Integer.valueOf(value);
-        if (type.equals(Long.class)) return Long.valueOf(value);
-        if (type.equals(Double.class)) return Double.valueOf(value);
-        if (type.equals(Boolean.class)) return Boolean.valueOf(value);
-        if (type.equals(LocalDate.class)) return LocalDate.parse(value);
-        // Add more types as needed
-        return value; // default to String
+    /**
+     * Helper method to create comparison predicates with proper type handling.
+     * Suppresses warnings since the type checking is done at runtime.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private Predicate createComparison(
+            CriteriaBuilder cb,
+            Path<?> path,
+            Object value,
+            Class<?> type,
+            String selector,
+            ComparisonFunction function) {
+        
+        if (!Comparable.class.isAssignableFrom(type)) {
+            throw new IllegalArgumentException("Field '" + selector + "' of type " + type.getSimpleName() + " is not Comparable");
+        }
+        
+        return function.apply(cb, (Expression<Comparable>) path, (Comparable) value);
     }
 
+    /**
+     * Functional interface for comparison operations.
+     */
+    @FunctionalInterface
+    private interface ComparisonFunction {
+        @SuppressWarnings("rawtypes")
+        Predicate apply(CriteriaBuilder cb, Expression<Comparable> path, Comparable value);
+    }
+
+    /**
+     * Converts string arguments to the appropriate Java type.
+     * 
+     * @param value The string value to convert
+     * @param type The target type class
+     * @return The converted value
+     * @throws IllegalArgumentException if conversion fails
+     */
+    private Object convert(String value, Class<?> type) {
+        try {
+            if (type.equals(Integer.class)) {
+                return Integer.valueOf(value);
+            }
+            if (type.equals(Long.class)) {
+                return Long.valueOf(value);
+            }
+            if (type.equals(Double.class)) {
+                return Double.valueOf(value);
+            }
+            if (type.equals(Boolean.class)) {
+                return Boolean.valueOf(value);
+            }
+            if (type.equals(LocalDate.class)) {
+                return LocalDate.parse(value);
+            }
+            // Default to String for unsupported types
+            return value;
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to convert value '" + value + "' to type " + type.getSimpleName(), e);
+        }
+    }
+
+    /**
+     * Navigates to the appropriate field path, handling nested properties with joins.
+     * 
+     * @param root The root entity
+     * @param selector The field selector (supports dot notation for nested fields)
+     * @return The path to the field
+     */
     private Path<?> getPath(Root<T> root, String selector) {
         if (selector.contains(".")) {
             String[] parts = selector.split("\\.");
