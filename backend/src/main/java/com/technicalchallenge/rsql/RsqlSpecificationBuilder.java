@@ -11,7 +11,9 @@ public class RsqlSpecificationBuilder<T> {
         if (query == null || query.isBlank()) {
             return (root, criteriaQuery, cb) -> cb.conjunction();
         }
+        // Step 1: Parse (meaning transform) RSQL string into an AST (Abstract Syntax Tree, which is a tree representation of the syntax structure)
         Node rootNode = new RSQLParser().parse(query);
+        // Step 2: Visit the AST and convert to Specification
         return rootNode.accept(new RsqlVisitor<T>(),null);
     }
 }

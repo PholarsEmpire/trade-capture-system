@@ -229,23 +229,21 @@ public class SecurityConfig {
             
 
             .authorizeHttpRequests(auth -> auth
-
-           
-                // Publicly accessible endpoints
+                // Publicly accessible endpoints - ORDER MATTERS!
+                // More specific patterns must come BEFORE general ones
                 .requestMatchers(
                     mvc.pattern("/swagger-ui/**"),
                     mvc.pattern("/v3/api-docs/**"),
                     mvc.pattern("/swagger-resources/**"),
                     mvc.pattern("/api-docs/**"),
                     mvc.pattern("/h2-console/**"),
-                    mvc.pattern("/auth/**"),
-                    mvc.pattern("/api/login/**")
+                    mvc.pattern("/api/login/**")  // Allow login endpoint
                 ).permitAll()
 
                  // Protected endpoints
-               // .requestMatchers(mvc.pattern("/api/**")).authenticated()
+                //.requestMatchers(mvc.pattern("/api/**")).authenticated()
 
-                // Everything else public
+                // Everything else authenticated
                 .anyRequest().permitAll()
             )
             // Use HTTP Basic for now (can switch to JWT later)

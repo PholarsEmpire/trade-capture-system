@@ -4,9 +4,9 @@ import com.technicalchallenge.dto.DailySummaryDTO;
 import com.technicalchallenge.dto.TradeDTO;
 import com.technicalchallenge.dto.TradeLegDTO;
 import com.technicalchallenge.dto.TradeSummaryDTO;
-import com.technicalchallenge.mapper.TradeMapper;
 import com.technicalchallenge.model.*;
 import com.technicalchallenge.repository.*;
+import com.technicalchallenge.rsql.RsqlSpecificationBuilder;
 import com.technicalchallenge.specifications.TradeSpecifications;
 
 import com.technicalchallenge.validation.ValidationResult;
@@ -54,8 +54,6 @@ public class TradeService {
     @Autowired
     private TradeLegRepository tradeLegRepository;
     @Autowired
-    private TradeMapper tradeMapper;
-    @Autowired
     private CashflowRepository cashflowRepository;
     @Autowired
     private TradeStatusRepository tradeStatusRepository;
@@ -85,8 +83,6 @@ public class TradeService {
     private PayRecRepository payRecRepository;
     @Autowired
     private AdditionalInfoService additionalInfoService;
-    @Autowired
-    private AdditionalInfoRepository additionalInfoRepository;
     @Autowired
     private UserPrivilegeRepository userPrivilegeRepository;
     @Autowired
@@ -756,54 +752,14 @@ public class TradeService {
 
 
     // FOLA ADDED: NEW METHOD FOR RSQL SEARCH
+    // Uses RsqlSpecificationBuilder and RsqlVisitor to parse RSQL queries into JPA Specifications
+    // Supports complex queries with AND (;), OR (,), and various comparison operators
+    // Example: "counterparty.name==MegaFund;tradeDate=ge=2025-01-01"
     public Page<Trade> searchByRsql(String query, Pageable pageable) {
-    // very small parser: split ANDs first
-        Specification<Trade> spec = Specification.where(null);
-        for (String andPart : query.split(";")) {
-            Specification<Trade> orSpec = Specification.where(null);
-            for (String orPart : andPart.split(",")) {
-                orSpec = orSpec == null ? parseToken(orPart) : orSpec.or(parseToken(orPart));
-            }
-            spec = spec == null ? orSpec : spec.and(orSpec);
-        }
-        return tradeRepository.findAll(spec == null ? Specification.where(null) : spec, pageable);
+        RsqlSpecificationBuilder<Trade> builder = new RsqlSpecificationBuilder<>();
+        Specification<Trade> spec = builder.parse(query);
+        return tradeRepository.findAll(spec, pageable);
     }
-
-
-    // Simple RSQL token parser for basic ==,=ge=,=le= operations meaning equal, greater-equal, less-equal
-    // This is a very basic parser and may not cover all edge cases
-    // It assumes that the input is well-formed and does not perform extensive validation
-    // Examples of supported tokens:
-    // counterparty.name==BigBank
-    // tradeStatus.tradeStatus==NEW
-    // tradeDate=ge=2025-01-01
-
-    private Specification<Trade> parseToken(String token) {
-        token = token.trim();
-        if (token.contains("=ge=")) {
-            String[] parts = token.split("=ge=");
-            if ("tradeDate".equals(parts[0])) {
-                return TradeSpecifications.dateBetween(LocalDate.parse(parts[1]), null);
-            }
-        } else if (token.contains("=le=")) {
-            String[] parts = token.split("=le=");
-            if ("tradeDate".equals(parts[0])) {
-                return TradeSpecifications.dateBetween(null, LocalDate.parse(parts[1]));
-            }
-        } else if (token.contains("==")) {
-            String[] parts = token.split("==");
-            String field = parts[0];
-            String value = parts[1];
-            return switch (field) {
-                case "counterparty.name" -> TradeSpecifications.hasCounterparty(value);
-                case "book.bookName", "book.name" -> TradeSpecifications.hasBook(value);
-                case "tradeStatus.tradeStatus" -> TradeSpecifications.hasStatus(value);
-                default -> (root, q, cb) -> cb.conjunction(); // ignore unknowns
-            };
-        }
-        return (root, q, cb) -> cb.conjunction();
-    }
-
 
 
     // FOLA ADDED: Validation method for dates validation, trade legs validation, and entity existence checks
@@ -811,7 +767,7 @@ public class TradeService {
         ValidationResult result = new ValidationResult();
 
         // ✅ Date Validation
-        if (tradeDTO.getTradeDate() == null) {
+        if (tradeDTO.getTradeDate() == null) { // checking by trade date because if there is no trade date (agreement date), there cannot be an execution date, hence we will not be able to perform date validations
             result.addError("Trade date is required");
         } else {
             if (tradeDTO.getTradeStartDate() != null && tradeDTO.getTradeStartDate().isBefore(tradeDTO.getTradeDate())) {
@@ -853,11 +809,17 @@ public class TradeService {
         TradeLegDTO leg1 = legs.get(0);
         TradeLegDTO leg2 = legs.get(1);
 
-        // Same maturity date 
-        if (leg1.getCalculationPeriodSchedule() != null && leg2.getCalculationPeriodSchedule() != null &&
-            !leg1.getCalculationPeriodSchedule().equals(leg2.getCalculationPeriodSchedule())) {
-            result.addError("Both legs must have identical maturity dates");
-        }
+
+
+        // NOTE: Maturity date is a TRADE-LEVEL property, not a leg-level property.
+        // Both legs inherit the same maturity date from the parent trade by default (trade.tradeMaturityDate).
+        // Therefore, we don't need to validate maturity date consistency here - it's enforced by design.
+        
+        // Calculation Period Schedule defines payment FREQUENCY (e.g., QUARTERLY, SEMI-ANNUAL)
+        // Legs CAN have different payment frequencies (e.g., fixed leg pays semi-annually, floating pays quarterly)
+        // So we should NOT validate that schedules are equal - they're allowed to differ!
+
+
 
         // ✅ Opposite pay/receive
         // If one leg is "Pay" the other must be "Receive"
@@ -1108,7 +1070,6 @@ public class TradeService {
                 .build();
     }
 
-
     // Net exposure = sum of all trade values (positive and negative)
     private Map<String, BigDecimal> calculateNetExposureByCounterparty(List<Trade> trades) {
         return trades.stream()
@@ -1203,9 +1164,6 @@ public class TradeService {
         
         return notional; // Default to positive if no direction specified
     }
-
-
-
 
 
 
@@ -1386,6 +1344,7 @@ public class TradeService {
     }
 
 
+    
     // FOLA ADDED: New method to update settlement instructions for a trade
     // This method checks if the trade exists and calls the AdditionalInfoService to save or version the new instructions.
     @Transactional

@@ -50,18 +50,20 @@ public class TradeSpecifications {
         };
     }
 
-    // Date range filter for tradeDate (the date agreement was made, not the date of execution)
+    // Date range filter for tradeStartDate (the value date, which is the most important for operations)
+    // TradesStartDate will be mostly used when we want to get Settlement operations (cash moves on this date); Risk management (position starts counting from here)
+    // Cashflow projections (when money actually flows)
     // If both from and to are provided, filter between them
     // If only from is provided, filter from that date onwards
     // If only to is provided, filter up to that date
     public static Specification<Trade> dateBetween(LocalDate from, LocalDate to) {
         return (root, query, cb) -> {
             if (from != null && to != null)
-                return cb.between(root.get("tradeDate"), from, to);
+                return cb.between(root.get("tradeStartDate"), from, to);
             if (from != null)
-                return cb.greaterThanOrEqualTo(root.get("tradeDate"), from);
+                return cb.greaterThanOrEqualTo(root.get("tradeStartDate"), from);
             if (to != null)
-                return cb.lessThanOrEqualTo(root.get("tradeDate"), to);
+                return cb.lessThanOrEqualTo(root.get("tradeStartDate"), to);
             return cb.conjunction();
         };
     }
