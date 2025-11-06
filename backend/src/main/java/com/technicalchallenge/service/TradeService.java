@@ -45,7 +45,9 @@ import java.util.stream.Collectors;
 
 @Service
 @Transactional
-@PreAuthorize("isAuthenticated()") // Ensures all methods require authentication by default, i.e user must be logged in. That means no unauthenticated user can reach this service.
+// COMMENTED OUT: Class-level authentication check conflicts with SecurityConfig's permitAll()
+// Individual methods already have @PreAuthorize annotations where needed
+// @PreAuthorize("isAuthenticated()") 
 public class TradeService {
     private static final Logger logger = LoggerFactory.getLogger(TradeService.class);
 
@@ -175,6 +177,15 @@ public class TradeService {
         // Create trade legs and cashflows
         createTradeLegsWithCashflows(tradeDTO, savedTrade);
 
+        // Save settlement instructions if provided
+        logger.info("Settlement instructions value: '{}'", tradeDTO.getSettlementInstructions());
+        if (tradeDTO.getSettlementInstructions() != null && !tradeDTO.getSettlementInstructions().trim().isEmpty()) {
+            logger.info("Saving settlement instructions for trade {}: {}", savedTrade.getTradeId(), tradeDTO.getSettlementInstructions());
+            additionalInfoService.saveSettlementInstructions(savedTrade.getTradeId(), tradeDTO.getSettlementInstructions());
+            logger.info("Settlement instructions saved successfully for trade {}", savedTrade.getTradeId());
+        } else {
+            logger.warn("Settlement instructions not saved - value is null or empty");
+        }
 
         logger.info("Successfully created trade with ID: {}", savedTrade.getTradeId());
         return savedTrade;
@@ -182,7 +193,7 @@ public class TradeService {
 
     // NEW METHOD: For controller compatibility
     @Transactional
-    @PreAuthorize("hasAnyRole('TRADER', 'TRADER_SALES', 'SALES', 'SUPERUSER')")
+    // REMOVED: @PreAuthorize - Using custom validateUserPrivileges() inside createTrade() instead
     public Trade saveTrade(TradeDTO tradeDTO) {
          Trade trade = mapDTOToEntity(tradeDTO);
         logger.info("Saving trade with ID: {}", trade.getTradeId());
@@ -384,6 +395,12 @@ public class TradeService {
 
         // Create new trade legs and cashflows
         createTradeLegsWithCashflows(tradeDTO, savedTrade);
+
+        // Save settlement instructions if provided
+        if (tradeDTO.getSettlementInstructions() != null && !tradeDTO.getSettlementInstructions().trim().isEmpty()) {
+            additionalInfoService.saveSettlementInstructions(savedTrade.getTradeId(), tradeDTO.getSettlementInstructions());
+            logger.debug("Saved settlement instructions for amended trade {}", savedTrade.getTradeId());
+        }
 
         logger.info("Successfully amended trade with ID: {}", savedTrade.getTradeId());
         return savedTrade;
